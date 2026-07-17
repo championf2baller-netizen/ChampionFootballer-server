@@ -1820,6 +1820,10 @@ export const getTeamView = async (ctx: Context) => {
         removed,
         homeWinPct,
         awayWinPct,
+        duration: match.start && match.end ? Math.round((new Date(match.end).getTime() - new Date(match.start).getTime()) / 60000) : null,
+        durationMinutes: match.start && match.end ? Math.round((new Date(match.end).getTime() - new Date(match.start).getTime()) / 60000) : null,
+        startedAt: match.start ? new Date(match.start).toISOString() : null,
+        endedAt: match.end ? new Date(match.end).toISOString() : null,
       },
     };
   } catch (err) {

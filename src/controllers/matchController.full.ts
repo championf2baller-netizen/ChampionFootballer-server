@@ -304,10 +304,12 @@ const calculateMatchupPrediction = async (
   matchupPct = Math.max(0, Math.min(100, matchupPct));
 
   let predicted: 'home' | 'away' | 'draw' = 'draw';
-  if (matchupPct > 53) {
+  if (homePredictedScore > awayPredictedScore) {
     predicted = 'home';
-  } else if (matchupPct < 47) {
+  } else if (homePredictedScore < awayPredictedScore) {
     predicted = 'away';
+  } else {
+    predicted = 'draw';
   }
 
   return {

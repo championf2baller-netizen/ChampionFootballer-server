@@ -74,8 +74,19 @@ export const getWorldRanking = async (ctx: Context) => {
     whereConditions.push(`u."id"::text NOT ILIKE 'guest\\_%'`);
 
     if (positionType) {
-      whereConditions.push(`u."positionType" = :positionType`);
-      replacements.positionType = positionType;
+      const posTypeLower = positionType.toLowerCase();
+      if (posTypeLower === 'goalkeeper' || posTypeLower === 'gk') {
+        whereConditions.push(`(LOWER(COALESCE(u."positionType", '')) IN ('goalkeeper', 'gk') OR LOWER(COALESCE(u."position", '')) IN ('gk', 'goalkeeper') OR u."position" ILIKE '%goalkeeper%' OR u."position" ILIKE '%gk%')`);
+      } else if (posTypeLower === 'defender' || posTypeLower === 'df') {
+        whereConditions.push(`(LOWER(COALESCE(u."positionType", '')) IN ('defender', 'df') OR LOWER(COALESCE(u."position", '')) IN ('cb', 'rb', 'lb', 'rwb', 'lwb', 'defender') OR u."position" ILIKE '%back%' OR u."position" ILIKE '%defender%')`);
+      } else if (posTypeLower === 'midfielder' || posTypeLower === 'md' || posTypeLower === 'mf') {
+        whereConditions.push(`(LOWER(COALESCE(u."positionType", '')) IN ('midfielder', 'md', 'mf') OR LOWER(COALESCE(u."position", '')) IN ('cm', 'cdm', 'cam', 'rm', 'lm', 'midfielder') OR u."position" ILIKE '%midfielder%')`);
+      } else if (posTypeLower === 'forward' || posTypeLower === 'fw') {
+        whereConditions.push(`(LOWER(COALESCE(u."positionType", '')) IN ('forward', 'fw') OR LOWER(COALESCE(u."position", '')) IN ('st', 'cf', 'rf', 'lf', 'rw', 'lw', 'forward') OR u."position" ILIKE '%striker%' OR u."position" ILIKE '%forward%' OR u."position" ILIKE '%winger%')`);
+      } else {
+        whereConditions.push(`(LOWER(COALESCE(u."positionType", '')) = :posTypeLower OR LOWER(COALESCE(u."position", '')) = :posTypeLower)`);
+        replacements.posTypeLower = posTypeLower;
+      }
     }
     if (country) {
       whereConditions.push(`u."country" = :country`);
