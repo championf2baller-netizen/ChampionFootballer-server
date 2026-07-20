@@ -47,7 +47,7 @@ const allowedOrigins = [
   'https://championfootballer-client-git-main-championfootballer.vercel.app',
   'https://championfootballer-client-championfootballer.vercel.app',
   'http://192.168.18.103:3000',
-  'https://championfootballer.co.uk'
+  'https://cfbackend.championfootballer.co.uk'
 ];
 
 // Function to check if origin is allowed (handles trailing slash)
