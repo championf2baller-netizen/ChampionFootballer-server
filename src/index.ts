@@ -43,11 +43,12 @@ const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:3001',
   // 'http://192.168.18.103:3000',
+  'https://championfootballer.co.uk',
+  'https://www.championfootballer.co.uk',
   'https://championfootballer-client.vercel.app',
   'https://championfootballer-client-git-main-championfootballer.vercel.app',
   'https://championfootballer-client-championfootballer.vercel.app',
-  'http://192.168.18.103:3000',
-  'https://cfbackend.championfootballer.co.uk'
+  'http://192.168.18.103:3000'
 ];
 
 // Function to check if origin is allowed (handles trailing slash)
