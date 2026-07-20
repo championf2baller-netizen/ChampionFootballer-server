@@ -1,6 +1,7 @@
 import Router from "@koa/router"
 import jwt from "jsonwebtoken"
 import passport from "koa-passport"
+import { User } from "../../models/User"
 import { IS_PRODUCTION, JWT_SECRET } from "../../config/env"
 
 const router = new Router({ prefix: "/auth" })
@@ -470,6 +471,136 @@ router.get("/providers", (ctx) => {
 
 
 
+// Verify and exchange mobile OAuth credentials
+router.post("/mobile-verify", async (ctx) => {
+  const { provider, token, email, firstName, lastName, profilePicture } = ctx.request.body as {
+    provider: string;
+    token: string;
+    email?: string;
+    firstName?: string;
+    lastName?: string;
+    profilePicture?: string;
+  };
+
+  if (!provider || !token) {
+    ctx.status = 400;
+    ctx.body = { success: false, message: "Missing provider or token" };
+    return;
+  }
+
+  let verifiedEmail = "";
+  let verifiedFirstName = firstName || "";
+  let verifiedLastName = lastName || "";
+  let verifiedProfilePicture = profilePicture || "";
+  let providerId = "";
+
+  try {
+    if (provider === "google") {
+      const res = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(token)}`);
+      if (!res.ok) {
+        throw new Error("Failed to verify Google token");
+      }
+      const data = await res.json() as {
+        email?: string;
+        given_name?: string;
+        family_name?: string;
+        picture?: string;
+        sub?: string;
+      };
+      if (!data.email) {
+        throw new Error("No email in Google token data");
+      }
+      verifiedEmail = data.email;
+      verifiedFirstName = data.given_name || verifiedFirstName;
+      verifiedLastName = data.family_name || verifiedLastName;
+      verifiedProfilePicture = data.picture || verifiedProfilePicture;
+      providerId = data.sub || "";
+    } else if (provider === "facebook") {
+      const res = await fetch(`https://graph.facebook.com/me?fields=id,email,first_name,last_name,picture.type(large)&access_token=${encodeURIComponent(token)}`);
+      if (!res.ok) {
+        throw new Error("Failed to verify Facebook token");
+      }
+      const data = await res.json() as {
+        id?: string;
+        email?: string;
+        first_name?: string;
+        last_name?: string;
+        picture?: { data?: { url?: string } };
+      };
+      if (!data.email) {
+        throw new Error("No email in Facebook profile data");
+      }
+      verifiedEmail = data.email;
+      verifiedFirstName = data.first_name || verifiedFirstName;
+      verifiedLastName = data.last_name || verifiedLastName;
+      verifiedProfilePicture = data.picture?.data?.url || verifiedProfilePicture;
+      providerId = data.id || "";
+    } else if (provider === "apple") {
+      if (!email) {
+        throw new Error("No email provided for Apple sign in");
+      }
+      verifiedEmail = email;
+      providerId = token;
+    } else {
+      ctx.status = 400;
+      ctx.body = { success: false, message: "Invalid provider" };
+      return;
+    }
+
+    let user = await User.findOne({ where: { email: verifiedEmail } });
+    if (!user) {
+      user = await User.create({
+        email: verifiedEmail,
+        password: "",
+        firstName: verifiedFirstName,
+        lastName: verifiedLastName,
+        profilePicture: verifiedProfilePicture,
+        provider,
+        providerId,
+        isVerified: true,
+        skills: {
+          dribbling: 50,
+          shooting: 50,
+          passing: 50,
+          pace: 50,
+          defending: 50,
+          physical: 50,
+        },
+        xp: 0,
+        achievements: [],
+      });
+    }
+
+    const appToken = jwt.sign(
+      {
+        userId: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        picture: user.profilePicture,
+      },
+      JWT_SECRET,
+      { expiresIn: "30d" }
+    );
+
+    ctx.body = {
+      success: true,
+      token: appToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        profilePicture: user.profilePicture,
+      }
+    };
+  } catch (error: any) {
+    console.error("[MOBILE-OAUTH] Verification failed:", error.message || error);
+    ctx.status = 401;
+    ctx.body = { success: false, message: error.message || "Authentication failed" };
+  }
+});
+
 // Log all registered routes
 console.log("[SOCIAL] Registered routes:")
 console.log("- GET /auth/test")
@@ -480,6 +611,7 @@ console.log("- GET /auth/facebook/callback")
 console.log("- GET /auth/apple")
 console.log("- GET /auth/apple/callback")
 console.log("- GET /auth/providers")
+console.log("- POST /auth/mobile-verify")
 
 export default router
 
