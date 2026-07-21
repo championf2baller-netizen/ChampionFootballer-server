@@ -409,27 +409,98 @@ router.get("/facebook/callback", async (ctx, next) => {
   }
 })
 
-// Apple OAuth fallback route (strategy can be added once credentials are configured)
-router.get("/apple", async (ctx) => {
+// Apple OAuth login route
+router.get("/apple", async (ctx, next) => {
+  console.log("[SOCIAL] /apple route hit")
   const clientOrigin = resolveClientOrigin(String(ctx.query.client || ''));
+  const nextPath = sanitizeNextPath(ctx.query.next);
+  const callbackURL = resolveProviderCallbackUrl(process.env.APPLE_CALLBACK_URL, ctx, '/auth/apple/callback');
+  console.log("[SOCIAL] Apple callbackURL resolved:", callbackURL);
+
   if (!APPLE_ENABLED) {
-    ctx.redirect(buildCallbackHashUrl({ error: 'apple_not_configured' }, clientOrigin))
+    console.warn("[SOCIAL] Apple not configured in environment")
+    const redirectUrl = buildCallbackHashUrl({ error: 'apple_not_configured' }, clientOrigin)
+    ctx.status = 302
+    ctx.redirect(redirectUrl)
     return
   }
 
-  ctx.redirect(buildCallbackHashUrl({ error: 'apple_not_supported' }, clientOrigin))
+  try {
+    const handler = passport.authenticate("apple", {
+      session: false,
+      state: JSON.stringify({ next: nextPath, client: clientOrigin }),
+      callbackURL,
+    });
+    return await runPassportHandler(handler, ctx, next);
+  } catch (error) {
+    console.error("[SOCIAL] Error in /apple route:", error)
+    const reason = toSafeErrorCode(extractErrorMessage(error), 'route_error');
+    ctx.redirect(buildCallbackHashUrl({ error: `apple_${reason}` }, clientOrigin))
+  }
 })
 
-router.get("/apple/callback", async (ctx) => {
-  const state = parseOAuthState(ctx.query.state);
+// Apple OAuth callback routes (supporting both POST from Apple and GET redirect falls)
+const handleAppleCallback = async (ctx: any, next: any) => {
+  const method = ctx.method.toUpperCase();
+  console.log(`[SOCIAL] /apple/callback route hit (${method})`)
+  
+  // Extract state & parameters from body (POST) or query (GET)
+  const body = (ctx.request.body as Record<string, any>) || {};
+  const stateVal = body.state || ctx.query.state;
+  const state = parseOAuthState(stateVal);
   const clientOrigin = resolveClientOrigin(state.client);
+  const callbackURL = resolveProviderCallbackUrl(process.env.APPLE_CALLBACK_URL, ctx, '/auth/apple/callback');
+  console.log(`[SOCIAL] Apple callbackURL resolved (callback ${method}):`, callbackURL);
+
+  const oauthError = toSafeErrorCode(body.error || ctx.query.error, '');
+  if (oauthError) {
+    const oauthDescription = typeof body.error_description === 'string' ? body.error_description : '';
+    console.warn("[SOCIAL] Apple provider returned error:", oauthError, oauthDescription);
+    ctx.redirect(buildCallbackHashUrl({ error: `apple_${oauthError}` }, clientOrigin))
+    return;
+  }
+
   if (!APPLE_ENABLED) {
+    console.warn("[SOCIAL] Apple not configured in environment (callback)")
     ctx.redirect(buildCallbackHashUrl({ error: 'apple_not_configured' }, clientOrigin))
     return
   }
 
-  ctx.redirect(buildCallbackHashUrl({ error: 'apple_not_supported' }, clientOrigin))
-})
+  try {
+    // Populate raw node request body for passport strategy compatibility
+    if (ctx.req && !(ctx.req as any).body && ctx.request.body) {
+      (ctx.req as any).body = ctx.request.body;
+    }
+
+    const handler = passport.authenticate("apple", { session: false, callbackURL }, (err: unknown, user: unknown) => {
+      console.log("[SOCIAL] Apple auth result:", { err: !!err, user: !!user })
+
+      if (err) {
+        console.error("[SOCIAL] Apple auth error:", err)
+        const reason = toSafeErrorCode(extractErrorMessage(err), 'failed')
+        return ctx.redirect(buildCallbackHashUrl({ error: `apple_${reason}` }, clientOrigin))
+      }
+
+      if (!isOAuthUser(user)) {
+        console.error("[SOCIAL] No valid user returned from Apple")
+        return ctx.redirect(buildCallbackHashUrl({ error: 'no_user' }, clientOrigin))
+      }
+
+      const nextPath = sanitizeNextPath(state.next);
+
+      console.log("[SOCIAL] Proceeding with user:", user.email, "nextPath:", nextPath)
+      redirectWithToken(ctx, user, nextPath, clientOrigin)
+    });
+    return await runPassportHandler(handler, ctx, next);
+  } catch (error) {
+    console.error("[SOCIAL] Error in Apple callback route:", error)
+    const reason = toSafeErrorCode(extractErrorMessage(error), 'callback_error')
+    ctx.redirect(buildCallbackHashUrl({ error: `apple_${reason}` }, clientOrigin))
+  }
+};
+
+router.get("/apple/callback", handleAppleCallback)
+router.post("/apple/callback", handleAppleCallback)
 
 // Provider status route to help diagnose production quickly
 router.get("/providers", (ctx) => {

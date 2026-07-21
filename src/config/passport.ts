@@ -1,6 +1,8 @@
 import passport from "koa-passport"
 import { Strategy as GoogleStrategy } from "passport-google-oauth20"
 import { Strategy as FacebookStrategy } from "passport-facebook"
+import AppleStrategy from "passport-apple"
+import jwt from "jsonwebtoken"
 import { User } from "../models/User"
 import { transporter } from "../modules/sendEmail"
 
@@ -228,6 +230,139 @@ export function setupPassport() {
     )
   } else {
     console.log("[PASSPORT] Facebook env vars missing, skipping Facebook strategy")
+  }
+
+  // APPLE (only if env vars exist)
+  const appleCallbackUrl = buildCallbackUrl(process.env.APPLE_CALLBACK_URL, '/auth/apple/callback');
+  const hasApple =
+    !!process.env.APPLE_CLIENT_ID &&
+    !!process.env.APPLE_TEAM_ID &&
+    !!process.env.APPLE_KEY_ID &&
+    !!process.env.APPLE_PRIVATE_KEY;
+
+  console.log("[PASSPORT] APPLE_CLIENT_ID exists:", !!process.env.APPLE_CLIENT_ID)
+  console.log("[PASSPORT] APPLE_TEAM_ID exists:", !!process.env.APPLE_TEAM_ID)
+  console.log("[PASSPORT] APPLE_KEY_ID exists:", !!process.env.APPLE_KEY_ID)
+  console.log("[PASSPORT] APPLE_PRIVATE_KEY exists:", !!process.env.APPLE_PRIVATE_KEY)
+  console.log("[PASSPORT] APPLE_CALLBACK_URL:", appleCallbackUrl)
+
+  if (hasApple) {
+    console.log("[PASSPORT] Setting up Apple strategy")
+    passport.use(
+      new AppleStrategy(
+        {
+          clientID: process.env.APPLE_CLIENT_ID!,
+          teamID: process.env.APPLE_TEAM_ID!,
+          keyID: process.env.APPLE_KEY_ID!,
+          privateKeyString: process.env.APPLE_PRIVATE_KEY!,
+          callbackURL: appleCallbackUrl,
+          scope: ["name", "email"],
+          passReqToCallback: false,
+        },
+        async (
+          _accessToken: string,
+          _refreshToken: string,
+          idToken: string,
+          profile: any,
+          done: (err: any, user?: any) => void
+        ) => {
+          try {
+            console.log("[PASSPORT] Apple strategy callback triggered")
+
+            const decoded = jwt.decode(idToken) as any;
+            const email = decoded?.email || profile?.email || null;
+            const providerId = decoded?.sub || profile?.id || null;
+
+            console.log("[PASSPORT] Apple profile details extracted:", { email, providerId });
+
+            if (!email) {
+              console.error("[PASSPORT] No email from Apple token/profile")
+              return done(new Error("No email from Apple"), false)
+            }
+
+            let user = await User.findOne({ where: { email } })
+            console.log("[PASSPORT] Existing user found:", !!user)
+
+            if (!user) {
+              console.log("[PASSPORT] Creating new user for:", email)
+              let firstName = "";
+              let lastName = "";
+              if (profile && profile.name) {
+                firstName = profile.name.firstName || "";
+                lastName = profile.name.lastName || "";
+              }
+              if (!firstName && email) {
+                firstName = email.split("@")[0];
+              }
+
+              user = await User.create({
+                email,
+                password: "",
+                firstName,
+                lastName,
+                provider: "apple",
+                providerId: providerId || "",
+                isVerified: true,
+                skills: {
+                  dribbling: 50,
+                  shooting: 50,
+                  passing: 50,
+                  pace: 50,
+                  defending: 50,
+                  physical: 50,
+                },
+                xp: 0,
+                achievements: [],
+              })
+              console.log("[PASSPORT] New user created with ID:", user.id)
+
+              // Send welcome email for new Apple user
+              try {
+                await transporter.sendMail({
+                  to: user.email,
+                  subject: `Welcome to Champion Footballer!`,
+                  html: `
+                    <div style="font-family:Arial,sans-serif;line-height:1.6;color:#111;background:#f7f7f9;padding:24px">
+                      <div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:8px;padding:24px">
+                        <h1 style="margin:0 0 12px;font-size:22px;color:#111;">Welcome, ${user.firstName || 'Player'}!</h1>
+                        <p style="margin:0 0 8px;">Your account has been created successfully via Apple.</p>
+                        <p style="margin:0 0 8px;">Quick start:</p>
+                        <ol style="padding-left:18px;margin:0 0 16px;">
+                          <li>Complete your profile and join/create a league.</li>
+                          <li>Start playing and earning XP!</li>
+                        </ol>
+                        <a href="${process.env.CLIENT_URL ?? 'https://championfootballer-client.vercel.app'}"
+                           style="display:inline-block;background:#16a34a;color:#fff;text-decoration:none;padding:12px 18px;border-radius:6px;font-weight:600">
+                          Open Champion Footballer
+                        </a>
+                        <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0" />
+                        <p style="margin:0 0 6px;">Follow us for updates:</p>
+                        <p style="margin:0;">
+                          <a href="${process.env.SOCIAL_X_URL ?? 'https://x.com/champf2baller'}" style="color:#0ea5e9;text-decoration:none;margin-right:12px;">X (Twitter)</a>
+                          <a href="${process.env.SOCIAL_FB_URL ?? 'https://facebook.com/championfootballer'}" style="color:#0ea5e9;text-decoration:none;margin-right:12px;">Facebook</a>
+                          <a href="${process.env.SOCIAL_IG_URL ?? 'https://www.instagram.com/champf2baller'}" style="color:#0ea5e9;text-decoration:none;">Instagram</a>
+                        </p>
+                      </div>
+                    </div>
+                  `,
+                });
+                console.log("[PASSPORT] Welcome email sent to Apple user:", user.email);
+              } catch (emailError) {
+                console.error("[PASSPORT] Error sending welcome email to Apple user:", emailError);
+              }
+            }
+
+            console.log("[PASSPORT] Returning user to callback:", user.email)
+            return done(null, user)
+          } catch (error) {
+            console.error("[PASSPORT] Error in Apple strategy:", error)
+            return done(error, false)
+          }
+        }
+      )
+    )
+  } else {
+    console.log("[PASSPORT] Apple env vars missing, skipping Apple strategy")
   }
 
   passport.serializeUser((user: any, done) => {
