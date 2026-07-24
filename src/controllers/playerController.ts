@@ -88,7 +88,7 @@ export const getPlayerStats = async (ctx: Context) => {
   try {
     const player = await UserModel.findByPk(id, {
       attributes: ['id'],
-      include: [{ model: LeagueModel, as: 'leagues', attributes: ['id', 'name'] }]
+      include: [{ model: LeagueModel, as: 'leagues', attributes: ['id', 'name', 'image', 'createdAt', 'updatedAt'] }]
     });
 
     if (!player) {
@@ -261,7 +261,10 @@ export const getPlayerStats = async (ctx: Context) => {
 
     const leagues = ((player as any).leagues || []).map((l: any) => ({
       id: String(l.id),
-      name: l.name || 'League'
+      name: l.name || 'League',
+      image: l.image,
+      createdAt: l.createdAt,
+      updatedAt: l.updatedAt
     }));
 
     ctx.body = {
@@ -336,7 +339,7 @@ export const getPlayerProfile = async (ctx: Context) => {
       include: [{
         model: LeagueModel,
         as: 'leagues',
-        attributes: ['id', 'name', 'image']
+        attributes: ['id', 'name', 'image', 'createdAt', 'updatedAt']
       }]
     });
 
@@ -495,6 +498,9 @@ export const getPlayerProfile = async (ctx: Context) => {
       leaguesMap.set(league.id, {
         id: league.id,
         name: league.name,
+        image: league.image,
+        createdAt: league.createdAt,
+        updatedAt: league.updatedAt,
         matches: []
       });
     });
