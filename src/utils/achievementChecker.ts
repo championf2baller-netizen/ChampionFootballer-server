@@ -251,7 +251,7 @@ export const computeAchievementState = (
       isCaptainWin,
       hasXFactorPick,
       wonMotmAward,
-      cleanSheetTeam: oppGoals === 0,
+      cleanSheetTeam: result === 'W' && oppGoals === 0,
     });
   }
 
