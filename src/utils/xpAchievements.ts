@@ -43,7 +43,7 @@ export const xpAchievements: XPAchievement[] = [
   },
   {
     id: "top_spot_10_matches",
-    definition: "Playing 90% of matches in a league",
+    definition: "Playing 90% of matches in a league (min. 10 matches)",
     xp: 400,
   },
   {

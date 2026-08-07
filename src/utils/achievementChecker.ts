@@ -307,7 +307,7 @@ export const computeAchievementState = (
 
     const totalMatchesInLeague = totalMatchesByLeague[leagueId] || 0;
     const playedMatchesInLeague = arr.length;
-    if (totalMatchesInLeague > 0) {
+    if (totalMatchesInLeague >= 10) {
       const playedPercent = playedMatchesInLeague / totalMatchesInLeague;
       if (playedPercent >= 0.9) ironWillCount += 1;
       if (
@@ -389,7 +389,7 @@ export const computeAchievementState = (
           ? `Best participation in a league: ${ironWillBestPlayed}/${ironWillBestTotal} (${Math.round(
               ironWillBestPercent * 100
             )}%)`
-          : 'No completed league matches yet',
+          : 'No completed league with 10+ matches yet',
     },
     {
       id: 'consecutive_10_victories',
