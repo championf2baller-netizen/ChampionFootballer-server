@@ -8,8 +8,8 @@ export class Vote extends Model<InferAttributes<Vote>, InferCreationAttributes<V
   declare matchId: ForeignKey<string>;
   declare voterId: ForeignKey<string>;
   declare votedForId: ForeignKey<string>;
+  declare category: CreationOptional<string | null>;
 
-  
   static associate(models: any) {
     Vote.belongsTo(models.Match, {
       foreignKey: 'matchId',
@@ -58,6 +58,11 @@ Vote.init(
         model: 'users',
         key: 'id',
       },
+    },
+    category: {
+      type: DataTypes.STRING(50),
+      allowNull: true,
+      defaultValue: 'motm',
     },
   },
   {

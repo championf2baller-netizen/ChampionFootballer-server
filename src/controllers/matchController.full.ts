@@ -824,7 +824,7 @@ export const voteForMotm = async (ctx: Context) => {
   }
 
   // Get old vote to subtract XP from previous voted player
-  const oldVote = await Vote.findOne({ where: { matchId, voterId } });
+  const oldVote = await Vote.findOne({ where: { matchId, voterId, category: { [Op.or]: ['motm', null] } } });
   const oldVotedForId = oldVote?.votedForId;
 
   if (!votedForId) {
@@ -870,7 +870,7 @@ export const voteForMotm = async (ctx: Context) => {
         }
       } catch (e) { console.error('Error removing vote XP:', e); }
     }
-    await Vote.destroy({ where: { matchId, voterId } });
+    await Vote.destroy({ where: { matchId, voterId, category: { [Op.or]: ['motm', null] } } });
     try {
       await recalculateMatchXPForCurrentState(matchId, [oldVotedForId]);
     } catch (recalcErr) {
@@ -925,12 +925,13 @@ export const voteForMotm = async (ctx: Context) => {
     } catch (e) { console.error('Error removing old vote XP:', e); }
   }
 
-  await Vote.destroy({ where: { matchId, voterId } });
+  await Vote.destroy({ where: { matchId, voterId, category: { [Op.or]: ['motm', null] } } });
   if (!targetUserId) {
     ctx.throw(400, 'Selected player is invalid for this match.');
     return;
   }
-  await Vote.create({ matchId, voterId, votedForId: targetUserId });
+
+  await Vote.create({ matchId, voterId, votedForId: targetUserId, category: 'motm' });
 
   console.log(`🗳️ Vote created - voterId: ${voterId}, votedForId: ${targetUserId}, matchId: ${matchId}`);
   console.log(`🗳️ Old vote was for: ${oldVotedForId || 'none'}`);
@@ -2571,7 +2572,8 @@ export const getCaptainPicks = async (ctx: Context) => {
     return;
   }
 
-  const cacheKey = `captain_picks_${matchId}`;
+  const userId = ctx.state.user.userId || ctx.state.user.id;
+  const cacheKey = `captain_picks_${matchId}_${userId || 'anon'}`;
   const cached = cache.get(cacheKey);
   if (cached) {
     ctx.body = cached;
@@ -2593,8 +2595,37 @@ export const getCaptainPicks = async (ctx: Context) => {
       return mirrorToDisplay.get(sid) || sid;
     };
 
+    let userDefPick: string | null = null;
+    let userInfPick: string | null = null;
+
+    if (userId) {
+      const userVotes = await Vote.findAll({
+        where: { matchId, voterId: userId, category: { [Op.in]: ['defence', 'influence'] } }
+      });
+      userVotes.forEach((v: any) => {
+        if (v.category === 'defence') userDefPick = toDisplay(v.votedForId);
+        if (v.category === 'influence') userInfPick = toDisplay(v.votedForId);
+      });
+
+      // Fallback for legacy matches or captain picks stored on Match record
+      if (!userDefPick || !userInfPick) {
+        const requesterTeam = await getPlayerTeamForMatch(String(userId), String(matchId));
+        if (requesterTeam === 'home') {
+          if (!userDefPick) userDefPick = toDisplay(match.homeDefensiveImpactId);
+          if (!userInfPick) userInfPick = toDisplay(match.homeMentalityId);
+        } else if (requesterTeam === 'away') {
+          if (!userDefPick) userDefPick = toDisplay(match.awayDefensiveImpactId);
+          if (!userInfPick) userInfPick = toDisplay(match.awayMentalityId);
+        }
+      }
+    }
+
     const result = {
       success: true,
+      userPicks: {
+        defence: userDefPick,
+        influence: userInfPick
+      },
       home: {
         defence: toDisplay(match.homeDefensiveImpactId),
         influence: toDisplay(match.homeMentalityId)
@@ -2650,43 +2681,76 @@ export const submitCaptainPicks = async (ctx: Context) => {
       return;
     }
 
-    let targetUserId: string;
-    try {
-      targetUserId = await resolveTargetUserIdForMatch(String(playerId), matchId);
-    } catch {
-      ctx.status = 400;
-      ctx.body = { success: false, message: 'Selected player is invalid for this match' };
-      return;
+    let targetUserId: string | null = null;
+    const isNone = !playerId || playerId === 'none' || playerId === 'clear';
+    if (!isNone) {
+      try {
+        targetUserId = await resolveTargetUserIdForMatch(String(playerId), matchId);
+      } catch {
+        ctx.status = 400;
+        ctx.body = { success: false, message: 'Selected player is invalid for this match' };
+        return;
+      }
+
+      if (String(targetUserId) === String(userId)) {
+        ctx.status = 400;
+        ctx.body = { success: false, message: 'You cannot select yourself as a captain bonus pick' };
+        return;
+      }
     }
 
-    if (String(targetUserId) === String(userId)) {
-      ctx.status = 400;
-      ctx.body = { success: false, message: 'You cannot select yourself as a captain bonus pick' };
-      return;
-    }
-
-    const targetTeam = await getPlayerTeamForMatch(targetUserId, matchId);
-    if (!targetTeam) {
+    const targetTeam = targetUserId ? await getPlayerTeamForMatch(targetUserId, matchId) : null;
+    if (!isNone && !targetTeam) {
       ctx.status = 400;
       ctx.body = { success: false, message: 'Selected player is not part of this match' };
       return;
     }
 
+    // Save per-voter Vote record
+    if (userId && category) {
+      const existingVote = await Vote.findOne({ where: { matchId, voterId: userId, category } });
+      if (targetUserId) {
+        if (existingVote) {
+          await existingVote.update({ votedForId: targetUserId });
+        } else {
+          await Vote.create({ matchId, voterId: userId, votedForId: targetUserId, category });
+        }
+      } else if (existingVote) {
+        await existingVote.destroy();
+      }
+    }
+
     const previousPickId = (() => {
+      if (!targetTeam) return '';
       if (category === 'defence') {
         return targetTeam === 'home' ? String((match as any).homeDefensiveImpactId || '') : String((match as any).awayDefensiveImpactId || '');
       }
       return targetTeam === 'home' ? String((match as any).homeMentalityId || '') : String((match as any).awayMentalityId || '');
     })();
 
-    // Save pick into selected player's team slot.
-    if (targetTeam === 'home') {
+    // Save pick into selected player's team slot (preserves existing Match column update logic).
+    const activeTeam = targetTeam || requesterTeam;
+    if (isNone && activeTeam) {
+      if (activeTeam === 'home') {
+        if (category === 'defence') {
+          await match.update({ homeDefensiveImpactId: null });
+        } else {
+          await match.update({ homeMentalityId: null });
+        }
+      } else if (activeTeam === 'away') {
+        if (category === 'defence') {
+          await match.update({ awayDefensiveImpactId: null });
+        } else {
+          await match.update({ awayMentalityId: null });
+        }
+      }
+    } else if (targetTeam === 'home') {
       if (category === 'defence') {
         await match.update({ homeDefensiveImpactId: targetUserId });
       } else {
         await match.update({ homeMentalityId: targetUserId });
       }
-    } else {
+    } else if (targetTeam === 'away') {
       if (category === 'defence') {
         await match.update({ awayDefensiveImpactId: targetUserId });
       } else {
@@ -2694,14 +2758,16 @@ export const submitCaptainPicks = async (ctx: Context) => {
       }
     }
 
-    try {
-      await recalculateMatchXPForCurrentState(matchId, [targetUserId, previousPickId]);
-    } catch (recalcErr) {
-      console.error('Could not recalculate match XP after captain pick:', recalcErr);
+    if (targetUserId) {
+      try {
+        await recalculateMatchXPForCurrentState(matchId, [targetUserId, previousPickId]);
+      } catch (recalcErr) {
+        console.error('Could not recalculate match XP after captain pick:', recalcErr);
+      }
     }
 
     // Clear cache
-    cache.del(`captain_picks_${matchId}`);
+    cache.clearPattern(`captain_picks_${matchId}`);
     cache.del(`match_${matchId}`);
     try {
       cache.clearPattern('user_achievements_');
