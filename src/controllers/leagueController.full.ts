@@ -903,7 +903,7 @@ export const getTrophyRoom = async (ctx: Context) => {
 
     const leagueIds = leagues.map((l: any) => String(l.id));
     const allSeasons = leagueIds.length > 0 ? await Season.findAll({
-      where: { leagueId: { [Op.in]: leagueIds } },
+      where: { leagueId: { [Op.in]: leagueIds }, deleted: false },
       attributes: seasonAttributes as string[],
       raw: true,
     }) : [];
@@ -2194,7 +2194,7 @@ export const getUserLeagues = async (ctx: Context) => {
             maxGames: league.maxGames ?? 0,
             totalMaxGames: completionInfo?.totalMaxGames ?? 0,
             missing: completionInfo?.missing ?? [],
-            seasons: (completionInfo?.seasons ?? []).map(s => ({
+            seasons: (completionInfo?.seasons ?? []).filter(s => !(s as any).deleted).map(s => ({
               seasonId: s.seasonId,
               seasonNumber: s.seasonNumber,
               seasonName: s.seasonName,
@@ -2206,6 +2206,7 @@ export const getUserLeagues = async (ctx: Context) => {
               missingStatsPlayers: s.missingStatsPlayers,
               inviteCode: s.inviteCode,
               archived: s.archived,
+              deleted: Boolean((s as any).deleted),
             })),
           },
         };

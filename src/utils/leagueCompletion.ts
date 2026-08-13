@@ -260,7 +260,7 @@ export const isSeasonCompleted = async (seasonId: string): Promise<SeasonComplet
   const season = await Season.findByPk(seasonId, {
     include: [{ model: League, as: 'league', attributes: ['maxGames'] }]
   });
-  if (!season) return null;
+  if (!season || (season as any).deleted) return null;
 
   const maxGames = Number(season.maxGames ?? (season as any).league?.maxGames ?? 0);
   if (maxGames <= 0) {
@@ -327,7 +327,7 @@ export const checkLeagueCompletion = async (
   const leagueMaxGames = Number(league?.maxGames ?? 0);
 
   const seasons = await Season.findAll({
-    where: { leagueId: leagueKey },
+    where: { leagueId: leagueKey, deleted: false },
     order: [['seasonNumber', 'ASC']],
   });
 

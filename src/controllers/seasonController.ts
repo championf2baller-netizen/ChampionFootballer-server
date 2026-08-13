@@ -1270,8 +1270,8 @@ export const restoreSeason = async (ctx: Context) => {
 };
 
 export const permanentDeleteSeason = async (ctx: Context) => {
-  const { seasonId } = ctx.params;
-  const leagueIdParam = ctx.params.leagueId ? String(ctx.params.leagueId) : '';
+  const seasonId = String(ctx.params.seasonId || ctx.params.id || '');
+  const leagueIdParam = String(ctx.params.leagueId || (ctx.params.seasonId ? ctx.params.id : '') || '');
 
   if (!seasonId) {
     ctx.throw(400, 'seasonId is required');
@@ -1314,7 +1314,7 @@ export const permanentDeleteSeason = async (ctx: Context) => {
     await seasonInTx.save({ transaction: tx });
 
     await Match.update(
-      { archived: true },
+      { archived: true, deleted: true },
       {
         where: {
           leagueId: seasonInTx.leagueId,
@@ -1357,6 +1357,9 @@ export const permanentDeleteSeason = async (ctx: Context) => {
 
     await tx.commit();
     await invalidateLeagueMutationCaches(String(seasonInTx.leagueId), [userId]);
+    try {
+      cache.clear();
+    } catch {}
 
     ctx.body = {
       success: true,
