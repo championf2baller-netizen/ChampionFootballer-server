@@ -2703,6 +2703,10 @@ export const submitCaptainPicks = async (ctx: Context) => {
     // Clear cache
     cache.del(`captain_picks_${matchId}`);
     cache.del(`match_${matchId}`);
+    try {
+      cache.clearPattern('user_achievements_');
+      cache.clearPattern('achievements:');
+    } catch {}
     if (match.leagueId) {
       try {
         cache.clearPattern(`league_${match.leagueId}`);

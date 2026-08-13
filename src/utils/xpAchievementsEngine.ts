@@ -181,16 +181,25 @@ export async function calculateAndAwardXPAchievements(userId: string, leagueId?:
   const Home = (sequelize.models as any)?.UserHomeMatches;
   const Away = (sequelize.models as any)?.UserAwayMatches;
   const startedAt = Date.now();
+  const userStatsRows = await MatchStatistics.findAll({
+    where: { user_id: userId },
+    attributes: ['match_id'],
+    raw: true,
+  });
+  const matchIdsFromStats = Array.from(
+    new Set((userStatsRows as any[]).map((r: any) => String(r.match_id || '')).filter((id: string) => id !== ''))
+  );
+
   const [homeMembershipRows, awayMembershipRows] = await Promise.all([
     Home ? Home.findAll({ where: { userId }, attributes: ['matchId'], raw: true }) : Promise.resolve([]),
     Away ? Away.findAll({ where: { userId }, attributes: ['matchId'], raw: true }) : Promise.resolve([]),
   ]);
   const matchIds = Array.from(
-    new Set(
-      [...(homeMembershipRows as any[]), ...(awayMembershipRows as any[])]
-        .map((r: any) => String(r.matchId || ''))
-        .filter((id: string) => id !== '')
-    )
+    new Set([
+      ...matchIdsFromStats,
+      ...(homeMembershipRows as any[]).map((r: any) => String(r.matchId || '')),
+      ...(awayMembershipRows as any[]).map((r: any) => String(r.matchId || '')),
+    ].filter((id: string) => id !== ''))
   );
 
   const previousAchievementIds: string[] = Array.isArray(user.achievements)
@@ -213,7 +222,7 @@ export async function calculateAndAwardXPAchievements(userId: string, leagueId?:
     return;
   }
 
-  const playedMatchWhere: any = { id: { [Op.in]: matchIds as any }, status: 'RESULT_PUBLISHED' };
+  const playedMatchWhere: any = { id: { [Op.in]: matchIds as any }, status: { [Op.in]: ['RESULT_PUBLISHED', 'RESULT_UPLOADED'] } };
   if (leagueId) playedMatchWhere.leagueId = leagueId;
 
   const playedMatches = await Match.findAll({
@@ -257,7 +266,7 @@ export async function calculateAndAwardXPAchievements(userId: string, leagueId?:
   const [leagueTotalRows, homeTeamRows, awayTeamRows, voteRows, statsRows] = await Promise.all([
     leagueIds.length > 0
       ? Match.findAll({
-          where: { leagueId: { [Op.in]: leagueIds as any }, status: 'RESULT_PUBLISHED' },
+          where: { leagueId: { [Op.in]: leagueIds as any }, status: { [Op.in]: ['RESULT_PUBLISHED', 'RESULT_UPLOADED'] } },
           attributes: ['leagueId', [sequelize.fn('COUNT', sequelize.col('id')), 'totalMatches']],
           group: ['leagueId'],
           raw: true,
@@ -339,10 +348,29 @@ export async function calculateAndAwardXPAchievements(userId: string, leagueId?:
     const homeIds = Array.from(homeUsersByMatch.get(matchId) || []);
     const awayIds = Array.from(awayUsersByMatch.get(matchId) || []);
     const votedForIds = votesByMatch.get(matchId) || [];
+
+    const sameId = (a: unknown, b: unknown): boolean => {
+      if (!a || !b) return false;
+      const sa = String(a).trim();
+      const sb = String(b).trim();
+      return sa !== '' && sb !== '' && sa === sb;
+    };
+
+    const isHomeInJoin = homeIds.some((id) => sameId(id, userId));
+    const isAwayInJoin = awayIds.some((id) => sameId(id, userId));
+    const isHomePick = sameId(m.homeDefensiveImpactId, userId) || sameId(m.homeMentalityId, userId);
+    const isAwayPick = sameId(m.awayDefensiveImpactId, userId) || sameId(m.awayMentalityId, userId);
+
+    const isHome = isHomeInJoin || isHomePick || (!isAwayInJoin && !isAwayPick);
+    const isAway = isAwayInJoin || isAwayPick;
+
+    const finalHomeIds = isHome ? Array.from(new Set([...homeIds, userId])) : homeIds;
+    const finalAwayIds = isAway ? Array.from(new Set([...awayIds, userId])) : awayIds;
+
     return toAchievementMatchInput({
       ...m,
-      homeTeamUsers: homeIds.map((id) => ({ id })),
-      awayTeamUsers: awayIds.map((id) => ({ id })),
+      homeTeamUsers: finalHomeIds.map((id) => ({ id })),
+      awayTeamUsers: finalAwayIds.map((id) => ({ id })),
       votes: votedForIds.map((votedForId) => ({ votedForId })),
     });
   });

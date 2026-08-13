@@ -844,7 +844,7 @@ export const getTrophyRoom = async (ctx: Context) => {
       // Fetch league matches separately to avoid query cartesian-product timeout
       const matches = await Match.findAll({
         where: { leagueId: leagueIdQ, status: { [Op.in]: ['RESULT_PUBLISHED', 'RESULT_UPLOADED'] }, deleted: false },
-        attributes: ['id', 'seasonId', 'status', 'date', 'homeTeamGoals', 'awayTeamGoals', 'homeDefensiveImpactId', 'awayDefensiveImpactId']
+        attributes: ['id', 'seasonId', 'status', 'date', 'homeTeamGoals', 'awayTeamGoals', 'homeDefensiveImpactId', 'awayDefensiveImpactId', 'homeMentalityId', 'awayMentalityId']
       });
 
       const plainLeague = league.get({ plain: true }) as any;
@@ -872,7 +872,7 @@ export const getTrophyRoom = async (ctx: Context) => {
 
       const matches = await Match.findAll({
         where: { leagueId: { [Op.in]: userLeagueIds }, status: { [Op.in]: ['RESULT_PUBLISHED', 'RESULT_UPLOADED'] }, deleted: false },
-        attributes: ['id', 'leagueId', 'seasonId', 'status', 'date', 'homeTeamGoals', 'awayTeamGoals', 'homeDefensiveImpactId', 'awayDefensiveImpactId']
+        attributes: ['id', 'leagueId', 'seasonId', 'status', 'date', 'homeTeamGoals', 'awayTeamGoals', 'homeDefensiveImpactId', 'awayDefensiveImpactId', 'homeMentalityId', 'awayMentalityId']
       });
 
       const matchesByLeague: Record<string, any[]> = {};
@@ -5053,7 +5053,7 @@ export const getLeaguePlayerAverages = async (ctx: Context) => {
     // Get all completed matches in this league/scope
     let completedMatches = await Match.findAll({
       where: matchWhere,
-      attributes: ['id', 'date', 'seasonId', 'homeTeamGoals', 'awayTeamGoals', 'homeDefensiveImpactId', 'awayDefensiveImpactId'],
+      attributes: ['id', 'date', 'seasonId', 'homeTeamGoals', 'awayTeamGoals', 'homeDefensiveImpactId', 'awayDefensiveImpactId', 'homeMentalityId', 'awayMentalityId'],
       raw: true,
     }) as any[];
 

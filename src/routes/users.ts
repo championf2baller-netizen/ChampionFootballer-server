@@ -201,7 +201,7 @@ router.get('/me/global-stats', required, async (ctx) => {
     const [matches, totalMotmVotes] = await Promise.all([
       Match.findAll({
         where: { id: { [Op.in]: statMatchIds as any }, status: 'RESULT_PUBLISHED' },
-        attributes: ['id', 'homeDefensiveImpactId', 'awayDefensiveImpactId'],
+        attributes: ['id', 'homeDefensiveImpactId', 'awayDefensiveImpactId', 'homeMentalityId', 'awayMentalityId'],
         raw: true,
       }) as any,
       Vote.count({
@@ -211,7 +211,11 @@ router.get('/me/global-stats', required, async (ctx) => {
 
     const publishedMatchIdSet = new Set((matches as any[]).map((m: any) => String(m.id || '')));
     const defensivePickCount = (matches as any[]).reduce((sum: number, m: any) => {
-      const isPick = String(m.homeDefensiveImpactId || '') === userId || String(m.awayDefensiveImpactId || '') === userId;
+      const isPick =
+        String(m.homeDefensiveImpactId || '') === userId ||
+        String(m.awayDefensiveImpactId || '') === userId ||
+        String(m.homeMentalityId || '') === userId ||
+        String(m.awayMentalityId || '') === userId;
       return sum + (isPick ? 1 : 0);
     }, 0);
 
@@ -263,7 +267,8 @@ router.get('/me/achievements', required, async (ctx) => {
     const UserModel = (models as any).User;
     const MatchStatisticsModel = (models as any).MatchStatistics;
     const cacheKey = `user_achievements_${userId}`;
-    const cached = cache.get<any>(cacheKey);
+    const bypassCache = Boolean(ctx.query._);
+    const cached = !bypassCache ? cache.get<any>(cacheKey) : null;
     if (cached) {
       ctx.body = cached;
       return;
@@ -326,7 +331,7 @@ router.get('/me/achievements', required, async (ctx) => {
 
     // Load RESULT_PUBLISHED matches the user played in
     const playedMatches = await Match.findAll({
-      where: { id: { [Op.in]: matchIds as any }, status: 'RESULT_PUBLISHED' },
+      where: { id: { [Op.in]: matchIds as any }, status: { [Op.in]: ['RESULT_PUBLISHED', 'RESULT_UPLOADED'] } },
       attributes: [
         'id',
         'leagueId',
@@ -365,7 +370,7 @@ router.get('/me/achievements', required, async (ctx) => {
     const [leagueTotalRows, voteRows, homeRows, awayRows] = await Promise.all([
       leagueIds.length > 0
         ? Match.findAll({
-            where: { leagueId: { [Op.in]: leagueIds as any }, status: 'RESULT_PUBLISHED' },
+            where: { leagueId: { [Op.in]: leagueIds as any }, status: { [Op.in]: ['RESULT_PUBLISHED', 'RESULT_UPLOADED'] } },
             attributes: ['leagueId', [sequelize.fn('COUNT', sequelize.col('id')), 'totalMatches']],
             group: ['leagueId'],
             raw: true,
@@ -416,10 +421,19 @@ router.get('/me/achievements', required, async (ctx) => {
     const achievementMatches = playedMatches.map((m: any) => {
       const matchId = String(m.id || '');
       const votedForIds = votesByMatch.get(matchId) || [];
+
+      const isHomeInJoin = homeMatchIdSet.has(matchId);
+      const isAwayInJoin = awayMatchIdSet.has(matchId);
+      const isHomePick = String(m.homeDefensiveImpactId || '') === userId || String(m.homeMentalityId || '') === userId;
+      const isAwayPick = String(m.awayDefensiveImpactId || '') === userId || String(m.awayMentalityId || '') === userId;
+
+      const isHome = isHomeInJoin || isHomePick || (!isAwayInJoin && !isAwayPick);
+      const isAway = isAwayInJoin || isAwayPick;
+
       return toAchievementMatchInput({
         ...m,
-        homeTeamUsers: homeMatchIdSet.has(matchId) ? [{ id: userId }] : [],
-        awayTeamUsers: awayMatchIdSet.has(matchId) ? [{ id: userId }] : [],
+        homeTeamUsers: isHome ? [{ id: userId }] : [],
+        awayTeamUsers: isAway ? [{ id: userId }] : [],
         votes: votedForIds.map((votedForId) => ({ votedForId })),
       });
     });
@@ -461,14 +475,6 @@ router.post('/me/achievements/award', required, async (ctx) => {
 
   const userId = String(ctx.state.user.userId);
   try {
-    const persistedCacheKey = `user_achievements_persisted_${userId}`;
-    const cached = cache.get<any>(persistedCacheKey);
-    if (cached) {
-      console.log(`[Achievements API] POST /award cache hit for user=${userId}. Skipping recalculation.`);
-      ctx.body = cached;
-      return;
-    }
-
     // Compute and award any missing achievements across all leagues
     await calculateAndAwardXPAchievements(userId);
 
@@ -503,6 +509,7 @@ router.post('/me/achievements/award', required, async (ctx) => {
       totalXP: Number(user.xp || 0),
       achievements: Array.isArray(user.achievements) ? user.achievements : [],
     };
+    const persistedCacheKey = `user_achievements_persisted_${userId}`;
     cache.set(persistedCacheKey, response, 600);
     ctx.body = response;
   } catch (e) {

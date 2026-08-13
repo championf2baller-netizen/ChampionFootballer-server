@@ -585,7 +585,7 @@ router.get('/:id/trophies', required, async (ctx) => {
         leagueId: { [Op.in]: leagueIds },
         status: { [Op.in]: ['RESULT_PUBLISHED', 'RESULT_UPLOADED'] },
       },
-      attributes: ['id', 'leagueId', 'seasonId', 'status', 'date', 'homeTeamGoals', 'awayTeamGoals', 'homeDefensiveImpactId', 'awayDefensiveImpactId'],
+      attributes: ['id', 'leagueId', 'seasonId', 'status', 'date', 'homeTeamGoals', 'awayTeamGoals', 'homeDefensiveImpactId', 'awayDefensiveImpactId', 'homeMentalityId', 'awayMentalityId'],
       raw: true,
     });
     const allMatchIds = (leagueMatches as any[]).map((m: any) => String(m.id));

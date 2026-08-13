@@ -26,7 +26,7 @@ export async function recalcUserTotalXP(userId: string): Promise<number | null> 
         FROM ${matchStatsTable} ms
         INNER JOIN ${matchesTable} m ON m."id" = ms."match_id"
         WHERE ms."user_id" = :userId
-          AND m."status" = 'RESULT_PUBLISHED'
+          AND m."status" IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED')
       `,
       {
         replacements: { userId },
