@@ -991,6 +991,9 @@ export const getCareerDashboard = async (ctx: Context) => {
           AVG(COALESCE(pm.motm_votes, 0)) AS avg_motm_votes,
           AVG(COALESCE(ptw.wins, 0)) AS avg_wins,
           AVG(CASE WHEN alp.matches_count > 0 THEN (COALESCE(ptw.wins, 0)::float / alp.matches_count::float) * 100 ELSE 0 END) AS avg_win_rate,
+          AVG(CASE WHEN alp.matches_count > 0 THEN (alp.goals::float / alp.matches_count::float) ELSE 0 END) AS avg_expected_goals,
+          AVG(CASE WHEN alp.matches_count > 0 THEN (alp.assists::float / alp.matches_count::float) ELSE 0 END) AS avg_expected_assists,
+          AVG(CASE WHEN alp.matches_count > 0 THEN (alp.clean_sheets::float / alp.matches_count::float) ELSE 0 END) AS avg_expected_clean_sheets,
           AVG(COALESCE(ptdi.def_votes, 0)) AS avg_def_votes
         FROM ActiveLeaguePlayers alp
         LEFT JOIN PlayerTotalWins ptw ON alp.user_id = ptw.user_id
@@ -1003,12 +1006,9 @@ export const getCareerDashboard = async (ctx: Context) => {
 
       const avgRow = avgResults && avgResults[0];
       if (avgRow) {
-        const totalMatches = Number(avgRow.total_matches || 0);
-        if (totalMatches > 0) {
-          leagueAvgExpectedGoals = Number(avgRow.sum_goals || 0) / totalMatches;
-          leagueAvgExpectedAssists = Number(avgRow.sum_assists || 0) / totalMatches;
-          leagueAvgExpectedCleanSheets = Number(avgRow.sum_clean_sheets || 0) / totalMatches;
-        }
+        if (avgRow.avg_expected_goals != null) leagueAvgExpectedGoals = Number(avgRow.avg_expected_goals);
+        if (avgRow.avg_expected_assists != null) leagueAvgExpectedAssists = Number(avgRow.avg_expected_assists);
+        if (avgRow.avg_expected_clean_sheets != null) leagueAvgExpectedCleanSheets = Number(avgRow.avg_expected_clean_sheets);
         if (avgRow.avg_goals != null) leagueAvgGoals = Number(avgRow.avg_goals);
         if (avgRow.avg_assists != null) leagueAvgAssists = Number(avgRow.avg_assists);
         if (avgRow.avg_clean_sheets != null) leagueAvgCleanSheets = Number(avgRow.avg_clean_sheets);
@@ -1043,6 +1043,42 @@ export const getCareerDashboard = async (ctx: Context) => {
       const display = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
       return `${display}${suffix}`;
     };
+
+    // Formatted Impact Table Rows (xG, xA, xCS, Win Rate for Mobile App Impact Card)
+    const expectedGoalsPerMatch = played > 0 ? goals / played : 0;
+    const expectedAssistsPerMatch = played > 0 ? assists / played : 0;
+    const expectedCleanSheetsPerMatch = played > 0 ? cleanSheets / played : 0;
+
+    const impactRows = [
+      {
+        metric: 'Expected to score a goal (xG)',
+        yourStats: formatStatDecimal(expectedGoalsPerMatch),
+        leagueAverage: formatStatDecimal(leagueAverage.expectedGoals),
+        yourValue: Math.round(expectedGoalsPerMatch * 10) / 10,
+        leagueValue: leagueAverage.expectedGoals,
+      },
+      {
+        metric: 'Expected to assist a goal (xA)',
+        yourStats: formatStatDecimal(expectedAssistsPerMatch),
+        leagueAverage: formatStatDecimal(leagueAverage.expectedAssists),
+        yourValue: Math.round(expectedAssistsPerMatch * 10) / 10,
+        leagueValue: leagueAverage.expectedAssists,
+      },
+      {
+        metric: 'Expected to keep Clean Sheet (xCS)',
+        yourStats: formatStatDecimal(expectedCleanSheetsPerMatch),
+        leagueAverage: formatStatDecimal(leagueAverage.expectedCleanSheets),
+        yourValue: Math.round(expectedCleanSheetsPerMatch * 10) / 10,
+        leagueValue: leagueAverage.expectedCleanSheets,
+      },
+      {
+        metric: 'Win rate',
+        yourStats: `${Math.round(winRate)}%`,
+        leagueAverage: `${Math.round(leagueAverage.winRate)}%`,
+        yourValue: Math.round(winRate),
+        leagueValue: Math.round(leagueAverage.winRate),
+      },
+    ];
 
     // Formatted Comparison Rows
     const leagueComparisonRows = [
@@ -1333,6 +1369,8 @@ export const getCareerDashboard = async (ctx: Context) => {
         yourStats,
         lastPrev10,
         leagueAverage,
+        impactRows,
+        impactTable: impactRows,
         leagueComparisonRows,
         topStrengths: {
           rows: top3Strengths,

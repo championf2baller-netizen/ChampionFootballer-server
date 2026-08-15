@@ -5426,6 +5426,13 @@ export const getLeaguePlayerAverages = async (ctx: Context) => {
     const leagueAvgMaxSingleAssists = totalPlayers > 0 ? +(sumMaxAssists / totalPlayers).toFixed(2) : 0;
     const leagueAvgMaxSingleMotm = totalPlayers > 0 ? +(sumMaxMotm / totalPlayers).toFixed(2) : 0;
 
+    const playerWinRates = playerIds.map(uid => {
+      const p = playerMap[uid];
+      const mc = Math.max(p.matches, 1);
+      return (p.wins / mc) * 100;
+    });
+    const avgWinRate = totalPlayers > 0 ? +(playerWinRates.reduce((a, b) => a + b, 0) / totalPlayers).toFixed(1) : 0;
+
     const leagueAvg = {
       goals: perMatchAverages.goals,
       assists: perMatchAverages.assists,
@@ -5437,17 +5444,42 @@ export const getLeaguePlayerAverages = async (ctx: Context) => {
       expectedGoals: perMatchAverages.expectedGoals,
       expectedAssists: perMatchAverages.expectedAssists,
       expectedCleanSheets: perMatchAverages.expectedCleanSheets,
-      winRate: leagueTotals.matches > 0 ? (leagueTotals.wins / leagueTotals.matches) * 100 : 0,
+      winRate: avgWinRate,
       maxSingleGoals: leagueAvgMaxSingleGoals,
       maxSingleAssists: leagueAvgMaxSingleAssists,
       maxSingleMotmVotes: leagueAvgMaxSingleMotm,
     };
+
+    const impactTable = [
+      {
+        metric: 'Expected to score a goal (xG)',
+        leagueAverage: perMatchAverages.expectedGoals,
+        leagueDisplay: String(perMatchAverages.expectedGoals),
+      },
+      {
+        metric: 'Expected to assist a goal (xA)',
+        leagueAverage: perMatchAverages.expectedAssists,
+        leagueDisplay: String(perMatchAverages.expectedAssists),
+      },
+      {
+        metric: 'Expected to keep Clean Sheet (xCS)',
+        leagueAverage: perMatchAverages.expectedCleanSheets,
+        leagueDisplay: String(perMatchAverages.expectedCleanSheets),
+      },
+      {
+        metric: 'Win rate',
+        leagueAverage: avgWinRate,
+        leagueDisplay: `${Math.round(avgWinRate)}%`,
+      },
+    ];
 
     const result = {
       success: true,
       totalMatches: matchIds.length,
       totalPlayers,
       leagueAvg,
+      impactTable,
+      impactRows: impactTable,
       leagueTotals,
       playerShares,
       playerTotals,
