@@ -1267,19 +1267,29 @@ router.get('/:id/achievements', required, async (ctx) => {
       return;
     }
 
-    // Fetch match IDs where user participated via join tables
+    // Fetch match IDs where user participated via MatchStatistics AND join tables
+    const userStatsRows = await MatchStatistics.findAll({
+      where: { user_id: playerId },
+      attributes: ['match_id'],
+      raw: true,
+    });
+    const matchIdsFromStats = Array.from(
+      new Set((userStatsRows as any[]).map((r: any) => String(r.match_id || '')).filter((id: string) => id !== ''))
+    );
+
     const Home = (sequelize.models as any)?.UserHomeMatches;
     const Away = (sequelize.models as any)?.UserAwayMatches;
-    let matchIds: string[] = [];
-    if (Home) {
-      const rows = await Home.findAll({ where: { userId: playerId }, attributes: ['matchId'], raw: true });
-      matchIds.push(...(rows as any[]).map(r => String(r.matchId)));
-    }
-    if (Away) {
-      const rows = await Away.findAll({ where: { userId: playerId }, attributes: ['matchId'], raw: true });
-      matchIds.push(...(rows as any[]).map(r => String(r.matchId)));
-    }
-    matchIds = Array.from(new Set(matchIds));
+    const [homeMembershipRows, awayMembershipRows] = await Promise.all([
+      Home ? Home.findAll({ where: { userId: playerId }, attributes: ['matchId'], raw: true }) : Promise.resolve([]),
+      Away ? Away.findAll({ where: { userId: playerId }, attributes: ['matchId'], raw: true }) : Promise.resolve([]),
+    ]);
+    const matchIds = Array.from(
+      new Set([
+        ...matchIdsFromStats,
+        ...(homeMembershipRows as any[]).map((r: any) => String(r.matchId || '')),
+        ...(awayMembershipRows as any[]).map((r: any) => String(r.matchId || '')),
+      ].filter((id: string) => id !== ''))
+    );
 
     if (matchIds.length === 0) {
       const emptyResult = {
@@ -1295,9 +1305,9 @@ router.get('/:id/achievements', required, async (ctx) => {
       return;
     }
 
-    // Load RESULT_PUBLISHED matches the user played in with filters
+    // Load RESULT_PUBLISHED and RESULT_UPLOADED matches the user played in with filters
     const Match = models.Match;
-    const matchWhere: any = { id: { [Op.in]: matchIds as any }, status: 'RESULT_PUBLISHED' };
+    const matchWhere: any = { id: { [Op.in]: matchIds as any }, status: { [Op.in]: ['RESULT_PUBLISHED', 'RESULT_UPLOADED'] } };
     
     // Apply league filter
     if (leagueId && leagueId !== 'all') {
@@ -1423,10 +1433,16 @@ router.get('/:id/achievements', required, async (ctx) => {
 
       processedMatches = matchesToProcess.map((match: any) => {
         const matchId = String(match.id);
+        const homeUsers = homeByMatch.get(matchId) || [];
+        const awayUsers = awayByMatch.get(matchId) || [];
+        const isHomeInJoin = homeUsers.some((u) => u.id === playerId);
+        const isAwayInJoin = awayUsers.some((u) => u.id === playerId);
+        const finalHomeUsers = (!isHomeInJoin && !isAwayInJoin) ? [...homeUsers, { id: playerId }] : homeUsers;
+
         return {
           ...match,
-          homeTeamUsers: homeByMatch.get(matchId) || [],
-          awayTeamUsers: awayByMatch.get(matchId) || [],
+          homeTeamUsers: finalHomeUsers,
+          awayTeamUsers: awayUsers,
           votes: votesByMatch.get(matchId) || [],
         };
       });

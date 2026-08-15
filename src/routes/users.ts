@@ -297,23 +297,20 @@ router.get('/me/achievements', required, async (ctx) => {
       new Set((userStatsRows as any[]).map((r: any) => String(r.match_id || '')).filter((id: string) => id !== ''))
     );
 
-    // Fallback scope: join tables (for legacy rows if stats are missing)
+    // Combine scope: MatchStatistics AND join tables (UserHomeMatches/UserAwayMatches)
     const Home = (sequelize.models as any)?.UserHomeMatches;
     const Away = (sequelize.models as any)?.UserAwayMatches;
-    let matchIds: string[] = matchIdsFromStats;
-    if (matchIds.length === 0) {
-      const [homeRowsFallback, awayRowsFallback] = await Promise.all([
-        Home ? Home.findAll({ where: { userId }, attributes: ['matchId'], raw: true }) : Promise.resolve([]),
-        Away ? Away.findAll({ where: { userId }, attributes: ['matchId'], raw: true }) : Promise.resolve([]),
-      ]);
-      matchIds = Array.from(
-        new Set(
-          [...(homeRowsFallback as any[]), ...(awayRowsFallback as any[])]
-            .map((r: any) => String(r.matchId || ''))
-            .filter((id: string) => id !== '')
-        )
-      );
-    }
+    const [homeMembershipRows, awayMembershipRows] = await Promise.all([
+      Home ? Home.findAll({ where: { userId }, attributes: ['matchId'], raw: true }) : Promise.resolve([]),
+      Away ? Away.findAll({ where: { userId }, attributes: ['matchId'], raw: true }) : Promise.resolve([]),
+    ]);
+    const matchIds = Array.from(
+      new Set([
+        ...matchIdsFromStats,
+        ...(homeMembershipRows as any[]).map((r: any) => String(r.matchId || '')),
+        ...(awayMembershipRows as any[]).map((r: any) => String(r.matchId || '')),
+      ].filter((id: string) => id !== ''))
+    );
 
     if (matchIds.length === 0) {
       const response = {

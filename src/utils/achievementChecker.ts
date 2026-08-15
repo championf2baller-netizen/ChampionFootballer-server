@@ -223,11 +223,14 @@ export const computeAchievementState = (
       totalMatchesByLeague[leagueId] = (totalMatchesByLeague[leagueId] || 0) + 1;
     }
 
-    const isHome = match.homeTeamUserIds.some((id) => sameComparableId(id, normalizedUserId));
-    const isAway = match.awayTeamUserIds.some((id) => sameComparableId(id, normalizedUserId));
-    if (!isHome && !isAway) continue;
-
     const statLine = statsByMatch.get(normalizeId(match.id)) || { goals: 0, assists: 0 };
+    const hasRecordedStats = statsByMatch.has(normalizeId(match.id));
+    let isHome = match.homeTeamUserIds.some((id) => sameComparableId(id, normalizedUserId));
+    let isAway = match.awayTeamUserIds.some((id) => sameComparableId(id, normalizedUserId));
+    if (!isHome && !isAway) {
+      if (!hasRecordedStats) continue;
+      isHome = true;
+    }
     const teamGoals = isHome ? Number(match.homeTeamGoals || 0) : Number(match.awayTeamGoals || 0);
     const oppGoals = isHome ? Number(match.awayTeamGoals || 0) : Number(match.homeTeamGoals || 0);
     const result: Result = teamGoals > oppGoals ? 'W' : teamGoals === oppGoals ? 'D' : 'L';
