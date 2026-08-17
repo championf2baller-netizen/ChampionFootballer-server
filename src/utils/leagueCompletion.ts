@@ -132,6 +132,8 @@ const getLastCompletedMatchIds = async (seasonId: string, n: number): Promise<st
     where: {
       seasonId,
       status: { [Op.in]: COMPLETED_STATUSES },
+      archived: { [Op.ne]: true },
+      deleted: { [Op.ne]: true },
     },
     order: [['date', 'DESC'], ['createdAt', 'DESC']],
     limit: n,
@@ -233,6 +235,8 @@ const getCompletedMatchCountsBySeason = async (
       WHERE "leagueId" = :leagueId
         AND "seasonId" IN (:seasonIds)
         AND status IN (:completedStatuses)
+        AND COALESCE(archived, false) = false
+        AND COALESCE(deleted, false) = false
       GROUP BY "seasonId"
     `,
     {
@@ -282,6 +286,8 @@ export const isSeasonCompleted = async (seasonId: string): Promise<SeasonComplet
     where: {
       seasonId,
       status: { [Op.in]: COMPLETED_STATUSES },
+      archived: { [Op.ne]: true },
+      deleted: { [Op.ne]: true },
     },
   });
 

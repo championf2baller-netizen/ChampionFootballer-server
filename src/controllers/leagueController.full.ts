@@ -385,7 +385,7 @@ const fetchUserLeaguesBasic = async (userId: string): Promise<LeagueListRow[]> =
            (SELECT "userId" FROM "LeagueMember" lm4 WHERE lm4."leagueId" = l.id ORDER BY "createdAt" ASC LIMIT 1)
          ) LIMIT 1) AS "adminName",
         (SELECT COUNT(*)::int FROM "LeagueMember" lm2 JOIN "users" u_count ON lm2."userId" = u_count.id WHERE lm2."leagueId" = l.id AND COALESCE(u_count.email, '') NOT ILIKE '%guest%' AND COALESCE(u_count.email, '') NOT ILIKE '%@local.invalid%' AND COALESCE(u_count.provider, '') != 'guest') AS "memberCount",
-        (SELECT COUNT(*)::int FROM "Matches" m WHERE m."leagueId" = l.id) AS "totalMatchCount"
+        (SELECT COUNT(*)::int FROM "Matches" m WHERE m."leagueId" = l.id AND COALESCE(m.archived, false) = false AND COALESCE(m.deleted, false) = false) AS "totalMatchCount"
       FROM "Leagues" l
       LEFT JOIN "LeagueMember" lm
         ON lm."leagueId" = l.id
@@ -441,7 +441,11 @@ const deriveLeagueLifecycle = (
 
 const fetchMatchesWithLightRelations = async (matchWhere: any): Promise<any[]> => {
   const matches = await Match.findAll({
-    where: matchWhere,
+    where: {
+      ...matchWhere,
+      archived: { [Op.ne]: true },
+      deleted: { [Op.ne]: true },
+    },
     order: [['createdAt', 'ASC']],
     raw: true,
   });
