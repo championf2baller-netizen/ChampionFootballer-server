@@ -9,6 +9,8 @@ import dreamTeamRouter from './dreamTeam';
 import playersRouter from './players';
 import leaderboardRouter from './leaderboard';
 import worldRankingRouter from './worldRanking';
+import notificationsRouter from './notifications';
+import adminRouter from './admin';
 import { Context } from 'koa';
 import { transporter, createMailOptions } from '../modules/sendEmail';
 import sequelize from '../config/database';
@@ -68,6 +70,8 @@ router.use(dreamTeamRouter.routes(), dreamTeamRouter.allowedMethods());
 router.use(playersRouter.routes(), playersRouter.allowedMethods());
 router.use(leaderboardRouter.routes(), leaderboardRouter.allowedMethods());
 router.use(worldRankingRouter.routes(), worldRankingRouter.allowedMethods());
+router.use(notificationsRouter.routes(), notificationsRouter.allowedMethods());
+router.use(adminRouter.routes(), adminRouter.allowedMethods());
 
 // Contact form endpoint
 router.post('/api/contact', async (ctx) => {
@@ -99,11 +103,11 @@ router.post('/api/contact', async (ctx) => {
 
 // Root route
 router.get('/', async (ctx: Context) => {
-    ctx.body = {
-        message: 'Welcome to Champion Footballer API',
-        version: '1.0.0',
-        status: 'running'
-    };
+  ctx.body = {
+    message: 'Welcome to Champion Footballer API',
+    version: '1.0.0',
+    status: 'running'
+  };
 });
 
 export default router;

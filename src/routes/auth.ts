@@ -12,6 +12,7 @@ import cache from '../utils/cache'; // ensure this exists and has get/set
 import crypto from 'crypto';
 import type { FindAttributeOptions } from 'sequelize'; // ADD THIS
 import { IS_PRODUCTION, JWT_SECRET } from '../config/env';
+import { ensureDefaultsExist } from '../controllers/adminStaticController';
 
 const router = new Router();
 const { League, Match, Session } = models;
@@ -691,7 +692,9 @@ router.post("/auth/verify-otp", none, async (ctx: CustomContext) => {
 });
 
 router.post("/auth/login", none, async (ctx: CustomContext) => {
-  const { email, password } = ctx.request.body.user as UserInput;
+  try { await ensureDefaultsExist(); } catch { }
+  const bodyData = (ctx.request.body?.user || ctx.request.body || {}) as UserInput;
+  const { email, password } = bodyData;
   if (!email || !password) {
     ctx.throw(401, "No email or password entered.");
   }
@@ -699,7 +702,7 @@ router.post("/auth/login", none, async (ctx: CustomContext) => {
   const userEmail = email.toLowerCase();
   const user = await User.findOne({
     where: { email },
-    attributes: ['id','firstName','lastName','email','password','age','gender','country','state','city','phone','phoneCountryCode','position','positionType','style','preferredFoot','shirtNumber','profilePicture','skills','xp','achievements','provider','isVerified'] // removed providerId
+    attributes: ['id','firstName','lastName','email','password','age','gender','country','state','city','phone','phoneCountryCode','position','positionType','style','preferredFoot','shirtNumber','profilePicture','skills','xp','achievements','provider','isVerified','isAdmin','role'] // removed providerId
   });
 
   if (!user) {
@@ -783,6 +786,8 @@ router.post("/auth/login", none, async (ctx: CustomContext) => {
       profilePicture: user.profilePicture,
       skills: user.skills,
       xp: user.xp || 0,
+      isAdmin: user.isAdmin === true,
+      role: user.role || 'PLAYER',
       joinedLeagues: [],
       managedLeagues: [],
       homeTeamMatches: [],

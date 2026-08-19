@@ -36,6 +36,8 @@ export interface UserAttributes {
   provider: string | null;
   providerId: string | null;
   achievements?: string[];
+  role?: string;
+  isAdmin?: boolean;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -74,6 +76,8 @@ export class User extends Model<UserAttributes> implements UserAttributes {
   public provider!: string | null;
   public providerId!: string | null;
   public achievements!: string[];
+  public role!: string;
+  public isAdmin!: boolean;
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
 
@@ -241,6 +245,16 @@ User.init(
       type: DataTypes.STRING,
       allowNull: true,
       defaultValue: null
+    },
+    role: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      defaultValue: 'PLAYER',
+    },
+    isAdmin: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
     }
   },
   {

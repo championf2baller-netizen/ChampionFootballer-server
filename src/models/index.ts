@@ -10,6 +10,7 @@ import Vote from './Vote';
 import MatchGuest from './MatchGuest';
 import Notification from './Notification';
 import { MatchPlayerLayout } from './MatchPlayerLayout';
+import StaticContent from './StaticContent';
 import { realtime } from '../services/realtime';
 import { invalidateCache as invalidateServerCache } from '../middleware/memoryCache';
 import cache from '../utils/cache';
@@ -23,7 +24,7 @@ Notification.initModel(sequelize);
 Match.hasMany(MatchGuest, { as: 'guestPlayers', foreignKey: 'matchId', onDelete: 'CASCADE' });
 MatchGuest.belongsTo(Match, { as: 'match', foreignKey: 'matchId' });
 
-const models = { User, League, Match, Season, MatchGuest, MatchStatistics, Session, Vote, MatchAvailability, Notification, MatchPlayerLayout };
+const models = { User, League, Match, Season, MatchGuest, MatchStatistics, Session, Vote, MatchAvailability, Notification, MatchPlayerLayout, StaticContent };
 
 // MINIMAL associations to avoid conflicts
 Match.hasMany(MatchAvailability, { as: 'availabilityRecords', foreignKey: 'match_id' });
@@ -38,7 +39,7 @@ Object.values(models).forEach((model: any) => {
 });
 
 export default models;
-export { User, League, Match, Season, MatchGuest, MatchStatistics, Session, Vote, MatchAvailability, Notification, MatchPlayerLayout };
+export { User, League, Match, Season, MatchGuest, MatchStatistics, Session, Vote, MatchAvailability, Notification, MatchPlayerLayout, StaticContent };
 
 // Helper to clear player-related caches
 const clearPlayerCaches = () => {
