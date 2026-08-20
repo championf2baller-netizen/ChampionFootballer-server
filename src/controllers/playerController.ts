@@ -492,6 +492,8 @@ export const getPlayerProfile = async (ctx: Context) => {
             'location',
             'leagueId',
             'end',
+            'homeCaptainId',
+            'awayCaptainId',
             'homeDefensiveImpactId',
             'awayDefensiveImpactId',
             'homeMentalityId',
@@ -545,10 +547,13 @@ export const getPlayerProfile = async (ctx: Context) => {
 
     const teamByMatchId = new Map<string, 'home' | 'away'>();
     visibleMatchIds.forEach((mId) => {
-      if (userHomeMatchIds.has(mId)) {
+      const matchObj = allMatches.find(m => String(m.id) === mId);
+      if (userHomeMatchIds.has(mId) || String(matchObj?.homeCaptainId || '') === String(id)) {
         teamByMatchId.set(mId, 'home');
-      } else if (userAwayMatchIds.has(mId)) {
+      } else if (userAwayMatchIds.has(mId) || String(matchObj?.awayCaptainId || '') === String(id)) {
         teamByMatchId.set(mId, 'away');
+      } else {
+        teamByMatchId.set(mId, 'home');
       }
     });
 
