@@ -100,7 +100,8 @@ export const getPlayerStats = async (ctx: Context) => {
     }
 
     const matchWhere: Record<string, unknown> = {
-      status: { [Op.in]: ['RESULT_PUBLISHED', 'RESULT_UPLOADED'] }
+      status: { [Op.in]: ['RESULT_PUBLISHED', 'RESULT_UPLOADED'] },
+      deleted: { [Op.ne]: true }
     };
     let shouldUseSeasonScope = Boolean(seasonId && seasonId !== 'all');
 
@@ -113,7 +114,7 @@ export const getPlayerStats = async (ctx: Context) => {
             leagueId,
             seasonId: { [Op.is]: null },
             status: { [Op.in]: ['RESULT_PUBLISHED', 'RESULT_UPLOADED'] },
-            deleted: false
+            deleted: { [Op.ne]: true }
           } as any
         });
         shouldUseSeasonScope = legacyUnseasonedMatches === 0;
@@ -134,38 +135,64 @@ export const getPlayerStats = async (ctx: Context) => {
       }
     }
 
-    const statsRows = await MatchStatistics.findAll({
+    // Fetch match IDs where user participated via MatchStatistics AND join tables
+    const userStatsRows = await MatchStatistics.findAll({
       where: { user_id: id },
-      include: [{
-        model: MatchModel,
-        as: 'match',
-        where: matchWhere,
-        attributes: [
-          'id',
-          'date',
-          'leagueId',
-          'seasonId',
-          'homeTeamGoals',
-          'awayTeamGoals',
-          'status',
-          'homeDefensiveImpactId',
-          'awayDefensiveImpactId',
-          'homeMentalityId',
-          'awayMentalityId'
-        ],
-        include: [
-          { model: UserModel, as: 'homeTeamUsers', attributes: ['id'] },
-          { model: UserModel, as: 'awayTeamUsers', attributes: ['id'] }
-        ]
-      }],
-      attributes: ['match_id', 'goals', 'assists', 'cleanSheets', 'defence', 'impact', 'xpAwarded']
+      attributes: ['match_id', 'goals', 'assists', 'cleanSheets', 'defence', 'impact', 'xpAwarded'],
+      raw: true
     });
 
-    const matchIds = Array.from(new Set(
-      statsRows
-        .map((s: any) => String(s.match_id || s.match?.id || '').trim())
-        .filter(Boolean)
-    ));
+    const HomeModel = (sequelize.models as any)?.UserHomeMatches;
+    const AwayModel = (sequelize.models as any)?.UserAwayMatches;
+
+    const [homeMembershipRows, awayMembershipRows] = await Promise.all([
+      HomeModel ? HomeModel.findAll({ where: { userId: id }, attributes: ['matchId'], raw: true }) : Promise.resolve([]),
+      AwayModel ? AwayModel.findAll({ where: { userId: id }, attributes: ['matchId'], raw: true }) : Promise.resolve([])
+    ]);
+
+    const homeMatchIdSet = new Set((homeMembershipRows as any[]).map((r: any) => String(r.matchId || '')).filter(Boolean));
+    const awayMatchIdSet = new Set((awayMembershipRows as any[]).map((r: any) => String(r.matchId || '')).filter(Boolean));
+    const statsByMatchId = new Map<string, any>();
+    (userStatsRows as any[]).forEach((s: any) => {
+      const mid = String(s.match_id || '').trim();
+      if (mid) statsByMatchId.set(mid, s);
+    });
+
+    const allPlayerMatchIds = Array.from(new Set([
+      ...Array.from(statsByMatchId.keys()),
+      ...Array.from(homeMatchIdSet),
+      ...Array.from(awayMatchIdSet)
+    ]));
+
+    if (allPlayerMatchIds.length === 0) {
+      const emptyStats = {
+        goals: 0, assists: 0, motm: 0, rating: 0, matches: 0, played: 0,
+        wins: 0, draws: 0, losses: 0, cleanSheets: 0, defence: 0, impact: 0,
+        contributionIndex: 0, motmVotes: 0, defensiveImpact: 0, defensiveImpactVotes: 0,
+        mentality: 0, teamGoalsConceded: 0, totalXP: 0, xp: 0, avgXP: 0, winRate: 0,
+        recentMatches: [], last10: []
+      };
+      ctx.body = { success: true, stats: emptyStats, data: { leagues: [] } };
+      return;
+    }
+
+    matchWhere.id = { [Op.in]: allPlayerMatchIds };
+
+    const matches = await MatchModel.findAll({
+      where: matchWhere,
+      attributes: [
+        'id', 'date', 'leagueId', 'seasonId', 'homeTeamGoals', 'awayTeamGoals',
+        'status', 'homeCaptainId', 'awayCaptainId', 'homeDefensiveImpactId',
+        'awayDefensiveImpactId', 'homeMentalityId', 'awayMentalityId'
+      ],
+      include: [
+        { model: UserModel, as: 'homeTeamUsers', attributes: ['id'] },
+        { model: UserModel, as: 'awayTeamUsers', attributes: ['id'] }
+      ],
+      order: [['date', 'ASC']]
+    });
+
+    const matchIds = matches.map((m: any) => String(m.id));
 
     const votes = matchIds.length
       ? await Vote.findAll({
@@ -196,31 +223,66 @@ export const getPlayerStats = async (ctx: Context) => {
     let defensiveImpact = 0;
     let mentality = 0;
 
-    statsRows.forEach((stat: any) => {
-      const match = stat.match;
-      if (!match) return;
+    const matchDetailsList: Array<{
+      id: string;
+      matchId: string;
+      date: string;
+      result: 'W' | 'L' | 'D';
+      teamGoals: number;
+      opponentGoals: number;
+      goals: number;
+      assists: number;
+      cleanSheets: number;
+      motmVotes: number;
+      impact: number;
+      defence: number;
+    }> = [];
 
+    matches.forEach((match: any) => {
       const matchId = String(match.id);
-      const homeIds = (match.homeTeamUsers || []).map((u: any) => String(u.id));
-      const awayIds = (match.awayTeamUsers || []).map((u: any) => String(u.id));
-      const isHome = homeIds.includes(String(id));
-      const isAway = awayIds.includes(String(id));
-      if (!isHome && !isAway) return;
+      const statRow = statsByMatchId.get(matchId) || {};
+
+      const homeUserIds = (match.homeTeamUsers || []).map((u: any) => String(u.id));
+      const awayUserIds = (match.awayTeamUsers || []).map((u: any) => String(u.id));
+
+      let isHome = homeMatchIdSet.has(matchId) || homeUserIds.includes(String(id)) || String(match.homeCaptainId || '') === String(id);
+      let isAway = awayMatchIdSet.has(matchId) || awayUserIds.includes(String(id)) || String(match.awayCaptainId || '') === String(id);
+
+      if (!isHome && !isAway) {
+        isHome = true;
+      } else if (isHome && isAway) {
+        if (homeMatchIdSet.has(matchId)) isAway = false;
+        else if (awayMatchIdSet.has(matchId)) isHome = false;
+        else isAway = false;
+      }
 
       const homeGoals = Number(match.homeTeamGoals || 0);
       const awayGoals = Number(match.awayTeamGoals || 0);
       const teamGoals = isHome ? homeGoals : awayGoals;
       const oppGoals = isHome ? awayGoals : homeGoals;
 
+      let result: 'W' | 'L' | 'D' = 'D';
+      if (teamGoals > oppGoals) result = 'W';
+      else if (teamGoals < oppGoals) result = 'L';
+
+      const matchMotm = Number(votesByMatch[matchId] || 0);
+      const g = Number(statRow.goals || 0);
+      const a = Number(statRow.assists || 0);
+      const cs = Number(statRow.cleanSheets || 0);
+      const d = Number(statRow.defence || 0);
+      const imp = Number(statRow.impact || 0);
+      const xpVal = Number(statRow.xpAwarded || 0);
+
       played += 1;
-      goals += Number(stat.goals || 0);
-      assists += Number(stat.assists || 0);
-      cleanSheets += Number(stat.cleanSheets || 0);
-      defence += Number(stat.defence || 0);
-      totalImpact += Number(stat.impact || 0);
-      totalXP += Number(stat.xpAwarded || 0);
-      motmVotes += Number(votesByMatch[matchId] || 0);
+      goals += g;
+      assists += a;
+      cleanSheets += cs;
+      defence += d;
+      totalImpact += imp;
+      totalXP += xpVal;
+      motmVotes += matchMotm;
       teamGoalsConceded += oppGoals;
+
       if (String(match.homeDefensiveImpactId || '') === String(id) || String(match.awayDefensiveImpactId || '') === String(id)) {
         defensiveImpact += 1;
       }
@@ -228,16 +290,38 @@ export const getPlayerStats = async (ctx: Context) => {
         mentality += 1;
       }
 
-      if (teamGoals === oppGoals) draws += 1;
-      else if (teamGoals > oppGoals) wins += 1;
+      if (result === 'W') wins += 1;
+      else if (result === 'D') draws += 1;
       else losses += 1;
+
+      matchDetailsList.push({
+        id: matchId,
+        matchId,
+        date: match.date,
+        result,
+        teamGoals,
+        opponentGoals: oppGoals,
+        goals: g,
+        assists: a,
+        cleanSheets: cs,
+        motmVotes: matchMotm,
+        impact: imp,
+        defence: d
+      });
     });
 
     const avgImpact = played > 0 ? +(totalImpact / played).toFixed(2) : 0;
     const avgXP = played > 0 ? +(totalXP / played).toFixed(2) : 0;
+    const winRate = played > 0 ? (wins / played) * 100 : 0;
+
+    // Recent matches in descending date order (newest first)
+    const recentMatches = [...matchDetailsList]
+      .reverse()
+      .slice(0, 10)
+      .map((item, idx) => ({ ...item, isLatest: idx === 0 }));
 
     const totalStats = {
-      // legacy keys (for old callers)
+      // legacy keys
       goals,
       assists,
       motm: motmVotes,
@@ -248,6 +332,7 @@ export const getPlayerStats = async (ctx: Context) => {
       wins,
       draws,
       losses,
+      winRate: Math.round(winRate * 10) / 10,
       cleanSheets,
       defence,
       impact: avgImpact,
@@ -260,6 +345,10 @@ export const getPlayerStats = async (ctx: Context) => {
       totalXP,
       xp: totalXP,
       avgXP,
+      recentMatches,
+      last10: recentMatches,
+      lastFive: recentMatches,
+      last10Results: recentMatches.map(m => m.result)
     };
 
     const leagues = ((player as any).leagues || []).map((l: any) => ({
@@ -352,8 +441,6 @@ export const getPlayerProfile = async (ctx: Context) => {
     }
 
     // 2. Get player stats and related match data in small queries.
-    // Avoid one large joined include (stats x votes x home players x away players),
-    // which can create a cartesian result and hit the DB statement timeout.
     const statRows = await MatchStatistics.findAll({
       where: { user_id: id },
       attributes: ['id', 'goals', 'assists', 'cleanSheets', 'penalties', 'freeKicks', 'defence', 'impact', 'rating', 'xpAwarded', 'match_id'],
@@ -394,6 +481,7 @@ export const getPlayerProfile = async (ctx: Context) => {
           where: {
             id: { [Op.in]: uniqueMatchIds },
             status: { [Op.in]: ['RESULT_PUBLISHED', 'RESULT_UPLOADED', 'REVISION_REQUESTED'] },
+            deleted: { [Op.ne]: true }
           },
           attributes: [
             'id',
@@ -440,7 +528,6 @@ export const getPlayerProfile = async (ctx: Context) => {
       }
     });
 
-    // Only fetch votes; home/away team mappings are computed in-memory
     const voteRows = visibleMatchIds.length
       ? await Vote.findAll({
           where: { matchId: { [Op.in]: visibleMatchIds } },
@@ -522,8 +609,6 @@ export const getPlayerProfile = async (ctx: Context) => {
         });
       }
 
-
-
       const isHomePlayer = match.playerTeam === 'home';
       const homeGoals = Number(match.homeTeamGoals || 0);
       const awayGoals = Number(match.awayTeamGoals || 0);
@@ -532,7 +617,6 @@ export const getPlayerProfile = async (ctx: Context) => {
       const result: 'W' | 'D' | 'L' =
         teamGoals === oppGoals ? 'D' : (teamGoals > oppGoals ? 'W' : 'L');
 
-      // Count MOTM votes for this player in this match
       const matchVotes = match.votes || [];
       const motmVotesCount = matchVotes.filter((v: any) => String(v.votedForId) === String(id)).length;
 
@@ -633,7 +717,8 @@ export const getCareerDashboard = async (ctx: Context) => {
 
     // Match filter criteria
     const matchWhere: Record<string, unknown> = {
-      status: { [Op.in]: ['RESULT_PUBLISHED', 'RESULT_UPLOADED'] }
+      status: { [Op.in]: ['RESULT_PUBLISHED', 'RESULT_UPLOADED'] },
+      deleted: { [Op.ne]: true }
     };
     if (leagueId && leagueId !== 'all') {
       matchWhere.leagueId = leagueId;
@@ -655,32 +740,85 @@ export const getCareerDashboard = async (ctx: Context) => {
       }
     }
 
-    // Fetch player match statistics
-    const statsRows = await MatchStatistics.findAll({
+    // Fetch match IDs where user participated via MatchStatistics AND join tables
+    const userStatsRows = await MatchStatistics.findAll({
       where: { user_id: id },
-      include: [{
-        model: MatchModel,
-        as: 'match',
-        where: matchWhere,
-        attributes: [
-          'id', 'date', 'leagueId', 'seasonId', 'homeTeamGoals', 'awayTeamGoals',
-          'status', 'homeCaptainId', 'awayCaptainId', 'homeDefensiveImpactId',
-          'awayDefensiveImpactId'
-        ],
-        include: [
-          { model: UserModel, as: 'homeTeamUsers', attributes: ['id'] },
-          { model: UserModel, as: 'awayTeamUsers', attributes: ['id'] }
-        ]
-      }],
       attributes: ['match_id', 'goals', 'assists', 'cleanSheets', 'defence', 'impact', 'xpAwarded'],
-      order: [[{ model: MatchModel, as: 'match' }, 'date', 'ASC']]
+      raw: true
     });
 
-    const matchIds = Array.from(new Set(
-      statsRows
-        .map((s: any) => String(s.match_id || s.match?.id || '').trim())
-        .filter(Boolean)
-    ));
+    const HomeModel = (sequelize.models as any)?.UserHomeMatches;
+    const AwayModel = (sequelize.models as any)?.UserAwayMatches;
+
+    const [homeMembershipRows, awayMembershipRows] = await Promise.all([
+      HomeModel ? HomeModel.findAll({ where: { userId: id }, attributes: ['matchId'], raw: true }) : Promise.resolve([]),
+      AwayModel ? AwayModel.findAll({ where: { userId: id }, attributes: ['matchId'], raw: true }) : Promise.resolve([])
+    ]);
+
+    const homeMatchIdSet = new Set((homeMembershipRows as any[]).map((r: any) => String(r.matchId || '')).filter(Boolean));
+    const awayMatchIdSet = new Set((awayMembershipRows as any[]).map((r: any) => String(r.matchId || '')).filter(Boolean));
+    const statsByMatchId = new Map<string, any>();
+    (userStatsRows as any[]).forEach((s: any) => {
+      const mid = String(s.match_id || '').trim();
+      if (mid) statsByMatchId.set(mid, s);
+    });
+
+    const allPlayerMatchIds = Array.from(new Set([
+      ...Array.from(statsByMatchId.keys()),
+      ...Array.from(homeMatchIdSet),
+      ...Array.from(awayMatchIdSet)
+    ]));
+
+    if (allPlayerMatchIds.length === 0) {
+      const emptyDashboard = {
+        success: true,
+        data: {
+          playerId: String(id),
+          playerName,
+          playerPosition,
+          filters: { leagueId: leagueId || 'all', year: year || 'all', seasonId: seasonId || 'all' },
+          yourStats: { n: 0, played: 0, wins: 0, draws: 0, losses: 0, winRate: 0, impactAvg: 0, motmVotes: 0, defence: 0, defensiveImpactVotes: 0, ga: 0, goals: 0, assists: 0, cleanSheets: 0, matchesWithGoals: 0, matchesWithAssists: 0, matchesWithCleanSheets: 0, captainMatchesCount: 0, captainWinsCount: 0, captainWinRate: 0 },
+          lastPrev10: { last: { n: 0, wins: 0, draws: 0, losses: 0, winRate: 0, impactAvg: 0, motmVotes: 0, ga: 0, goals: 0, assists: 0, cleanSheets: 0, matchesWithGoals: 0, matchesWithAssists: 0, matchesWithCleanSheets: 0 }, prev: { n: 0, wins: 0, draws: 0, losses: 0, winRate: 0, impactAvg: 0, motmVotes: 0, ga: 0, goals: 0, assists: 0, cleanSheets: 0, matchesWithGoals: 0, matchesWithAssists: 0, matchesWithCleanSheets: 0 }, matches: [], results: [] },
+          last10: [],
+          lastFive: [],
+          recentMatches: [],
+          last10Results: [],
+          leagueAverage: { goals: 0.8, assists: 0.5, cleanSheets: 0.3, defence: 0.5, motmVotes: 0.4, defensiveImpactVotes: 0.3, impact: 55, winRate: 50, wins: 2.5, expectedGoals: 0.5, expectedAssists: 0.4, expectedCleanSheets: 0.1 },
+          impactRows: [],
+          impactTable: [],
+          leagueComparisonRows: [],
+          topStrengths: { rows: [], note: '', narrative: null },
+          focusSuggestion: 'Play a few more games to unlock a personalized focus area.',
+          winLossBreakdown: [
+            { name: 'Win', value: 0, color: '#15b57a', fill: '#15b57a' },
+            { name: 'Loss', value: 0, color: '#d22f2f', fill: '#d22f2f' },
+            { name: 'Draw', value: 0, color: '#ff4bd2', fill: '#ff4bd2' }
+          ],
+          influenceRadar: [],
+          playerMaxSingleMatchStats: { goals: 0, assists: 0, motmVotes: 0 }
+        }
+      };
+      ctx.body = emptyDashboard;
+      return;
+    }
+
+    matchWhere.id = { [Op.in]: allPlayerMatchIds };
+
+    const matches = await MatchModel.findAll({
+      where: matchWhere,
+      attributes: [
+        'id', 'date', 'leagueId', 'seasonId', 'homeTeamGoals', 'awayTeamGoals',
+        'status', 'homeCaptainId', 'awayCaptainId', 'homeDefensiveImpactId',
+        'awayDefensiveImpactId'
+      ],
+      include: [
+        { model: UserModel, as: 'homeTeamUsers', attributes: ['id'] },
+        { model: UserModel, as: 'awayTeamUsers', attributes: ['id'] }
+      ],
+      order: [['date', 'ASC']]
+    });
+
+    const matchIds = matches.map((m: any) => String(m.id));
 
     // Fetch MOTM votes
     const votes = matchIds.length
@@ -719,18 +857,28 @@ export const getCareerDashboard = async (ctx: Context) => {
       match: any;
       stat: any;
       result: 'W' | 'L' | 'D';
+      teamGoals: number;
+      oppGoals: number;
       motmVotes: number;
     }> = [];
 
-    statsRows.forEach((statRow: any) => {
-      const match = statRow.match;
-      if (!match) return;
-
+    matches.forEach((match: any) => {
       const matchId = String(match.id);
-      const homeIds = (match.homeTeamUsers || []).map((u: any) => String(u.id));
-      const awayIds = (match.awayTeamUsers || []).map((u: any) => String(u.id));
-      const isAway = awayIds.includes(String(id));
-      const isHome = !isAway;
+      const statRow = statsByMatchId.get(matchId) || {};
+
+      const homeUserIds = (match.homeTeamUsers || []).map((u: any) => String(u.id));
+      const awayUserIds = (match.awayTeamUsers || []).map((u: any) => String(u.id));
+
+      let isHome = homeMatchIdSet.has(matchId) || homeUserIds.includes(String(id)) || String(match.homeCaptainId || '') === String(id);
+      let isAway = awayMatchIdSet.has(matchId) || awayUserIds.includes(String(id)) || String(match.awayCaptainId || '') === String(id);
+
+      if (!isHome && !isAway) {
+        isHome = true;
+      } else if (isHome && isAway) {
+        if (homeMatchIdSet.has(matchId)) isAway = false;
+        else if (awayMatchIdSet.has(matchId)) isHome = false;
+        else isAway = false;
+      }
 
       const homeGoals = Number(match.homeTeamGoals || 0);
       const awayGoals = Number(match.awayTeamGoals || 0);
@@ -775,7 +923,7 @@ export const getCareerDashboard = async (ctx: Context) => {
       const isAwayDef = String(match.awayDefensiveImpactId || '') === String(id);
       if (isHomeDef || isAwayDef) defensiveImpactVotes += 1;
 
-      playedMatchesList.push({ match, stat: statRow, result, motmVotes: matchMotm });
+      playedMatchesList.push({ match, stat: statRow, result, teamGoals, oppGoals, motmVotes: matchMotm });
     });
 
     const winRate = played > 0 ? (wins / played) * 100 : 0;
@@ -805,7 +953,7 @@ export const getCareerDashboard = async (ctx: Context) => {
       captainWinRate: Math.round(captainWinRate * 10) / 10,
     };
 
-    // Helper for aggregate match list
+    // Helper for aggregate match set
     const aggregateMatchSet = (list: typeof playedMatchesList) => {
       const n = list.length;
       let w = 0, d = 0, l = 0;
@@ -855,9 +1003,32 @@ export const getCareerDashboard = async (ctx: Context) => {
     const last10Matches = playedMatchesList.slice(-10);
     const prev10Matches = playedMatchesList.slice(-20, -10);
 
+    // Format last 10 matches in DESCENDING date order (newest first)
+    const last10MatchList = [...last10Matches]
+      .reverse()
+      .map((item, idx) => ({
+        id: String(item.match.id),
+        matchId: String(item.match.id),
+        date: item.match.date,
+        result: item.result,
+        teamGoals: item.teamGoals,
+        opponentGoals: item.oppGoals,
+        goals: Number(item.stat?.goals || 0),
+        assists: Number(item.stat?.assists || 0),
+        cleanSheets: Number(item.stat?.cleanSheets || 0),
+        motmVotes: item.motmVotes,
+        impact: Number(item.stat?.impact || 0),
+        defence: Number(item.stat?.defence || 0),
+        isLatest: idx === 0,
+      }));
+
+    const last10ResultsArray = last10MatchList.map((m) => m.result);
+
     const lastPrev10 = {
       last: aggregateMatchSet(last10Matches),
-      prev: aggregateMatchSet(prev10Matches)
+      prev: aggregateMatchSet(prev10Matches),
+      matches: last10MatchList,
+      results: last10ResultsArray
     };
 
     // League Benchmark Average (using database averages)
@@ -889,6 +1060,7 @@ export const getCareerDashboard = async (ctx: Context) => {
           INNER JOIN "Matches" m ON ms.match_id = m.id
           INNER JOIN users u ON ms.user_id = u.id
           WHERE m.status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED')
+            AND (m.deleted = false OR m.deleted IS NULL)
             AND (u.provider IS NULL OR u.provider != 'guest')
             AND (u.email IS NULL OR (u.email NOT ILIKE '%guest%' AND u.email NOT ILIKE '%@local.invalid'))
             ${leagueId && leagueId !== 'all' ? 'AND m."leagueId" = :leagueId' : ''}
@@ -902,6 +1074,7 @@ export const getCareerDashboard = async (ctx: Context) => {
           INNER JOIN match_statistics ms ON m.id = ms.match_id
           INNER JOIN users u ON ms.user_id = u.id
           WHERE m.status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED')
+            AND (m.deleted = false OR m.deleted IS NULL)
             AND (u.provider IS NULL OR u.provider != 'guest')
             AND (u.email IS NULL OR (u.email NOT ILIKE '%guest%' AND u.email NOT ILIKE '%@local.invalid'))
             ${leagueId && leagueId !== 'all' ? 'AND m."leagueId" = :leagueId' : ''}
@@ -916,6 +1089,7 @@ export const getCareerDashboard = async (ctx: Context) => {
           INNER JOIN "UserHomeMatches" uhm ON alp.user_id = uhm."userId"
           INNER JOIN "Matches" m ON uhm."matchId" = m.id
           WHERE m.status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED')
+            AND (m.deleted = false OR m.deleted IS NULL)
             AND m."homeTeamGoals" > m."awayTeamGoals"
             ${leagueId && leagueId !== 'all' ? 'AND m."leagueId" = :leagueId' : ''}
             ${seasonId && seasonId !== 'all' ? 'AND m."seasonId" = :seasonId' : ''}
@@ -929,6 +1103,7 @@ export const getCareerDashboard = async (ctx: Context) => {
           INNER JOIN "UserAwayMatches" uam ON alp.user_id = uam."userId"
           INNER JOIN "Matches" m ON uam."matchId" = m.id
           WHERE m.status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED')
+            AND (m.deleted = false OR m.deleted IS NULL)
             AND m."awayTeamGoals" > m."homeTeamGoals"
             ${leagueId && leagueId !== 'all' ? 'AND m."leagueId" = :leagueId' : ''}
             ${seasonId && seasonId !== 'all' ? 'AND m."seasonId" = :seasonId' : ''}
@@ -946,6 +1121,7 @@ export const getCareerDashboard = async (ctx: Context) => {
           INNER JOIN "Matches" m ON v."matchId" = m.id
           INNER JOIN ActiveLeaguePlayers alp ON v."votedForId" = alp.user_id
           WHERE m.status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED')
+            AND (m.deleted = false OR m.deleted IS NULL)
             ${leagueId && leagueId !== 'all' ? 'AND m."leagueId" = :leagueId' : ''}
             ${seasonId && seasonId !== 'all' ? 'AND m."seasonId" = :seasonId' : ''}
             ${yearStart ? 'AND m."date" >= :yearStart AND m."date" < :yearEnd' : ''}
@@ -956,6 +1132,7 @@ export const getCareerDashboard = async (ctx: Context) => {
           FROM "Matches" m
           INNER JOIN ActiveLeaguePlayers alp ON m."homeDefensiveImpactId" = alp.user_id
           WHERE m.status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED')
+            AND (m.deleted = false OR m.deleted IS NULL)
             AND m."homeDefensiveImpactId" IS NOT NULL
             ${leagueId && leagueId !== 'all' ? 'AND m."leagueId" = :leagueId' : ''}
             ${seasonId && seasonId !== 'all' ? 'AND m."seasonId" = :seasonId' : ''}
@@ -966,6 +1143,7 @@ export const getCareerDashboard = async (ctx: Context) => {
           FROM "Matches" m
           INNER JOIN ActiveLeaguePlayers alp ON m."awayDefensiveImpactId" = alp.user_id
           WHERE m.status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED')
+            AND (m.deleted = false OR m.deleted IS NULL)
             AND m."awayDefensiveImpactId" IS NOT NULL
             ${leagueId && leagueId !== 'all' ? 'AND m."leagueId" = :leagueId' : ''}
             ${seasonId && seasonId !== 'all' ? 'AND m."seasonId" = :seasonId' : ''}
@@ -1368,6 +1546,10 @@ export const getCareerDashboard = async (ctx: Context) => {
         },
         yourStats,
         lastPrev10,
+        last10: last10MatchList,
+        lastFive: last10MatchList,
+        recentMatches: last10MatchList,
+        last10Results: last10ResultsArray,
         leagueAverage,
         impactRows,
         impactTable: impactRows,

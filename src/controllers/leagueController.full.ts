@@ -3249,6 +3249,7 @@ export const getPlayerQuickView = async (ctx: Context) => {
     const matchFilter: any = {
       leagueId,
       status: { [Op.in]: completedStatuses },
+      deleted: { [Op.ne]: true }
     };
     if (seasonId) matchFilter.seasonId = seasonId;
 
@@ -3263,8 +3264,8 @@ export const getPlayerQuickView = async (ctx: Context) => {
           through: { attributes: [] } as any,
           required: true,
         }],
-        attributes: ['id', 'homeTeamGoals', 'awayTeamGoals', 'end', 'resultPublishedAt', 'createdAt'],
-        order: [['end', 'DESC']],
+        attributes: ['id', 'date', 'homeTeamGoals', 'awayTeamGoals', 'end', 'resultPublishedAt', 'createdAt'],
+        order: [['date', 'DESC']],
         limit: 10,
       } as any),
       Match.findAll({
@@ -3277,8 +3278,8 @@ export const getPlayerQuickView = async (ctx: Context) => {
           through: { attributes: [] } as any,
           required: true,
         }],
-        attributes: ['id', 'homeTeamGoals', 'awayTeamGoals', 'end', 'resultPublishedAt', 'createdAt'],
-        order: [['end', 'DESC']],
+        attributes: ['id', 'date', 'homeTeamGoals', 'awayTeamGoals', 'end', 'resultPublishedAt', 'createdAt'],
+        order: [['date', 'DESC']],
         limit: 10,
       } as any),
     ]);
@@ -3293,7 +3294,7 @@ export const getPlayerQuickView = async (ctx: Context) => {
         homeGoals: Number(mAny.homeTeamGoals ?? 0),
         awayGoals: Number(mAny.awayTeamGoals ?? 0),
         team: 'home',
-        date: mAny.end || mAny.resultPublishedAt || mAny.createdAt || '',
+        date: mAny.date || mAny.end || mAny.resultPublishedAt || mAny.createdAt || '',
       });
     }
     for (const m of awayMatches) {
@@ -3305,7 +3306,7 @@ export const getPlayerQuickView = async (ctx: Context) => {
           homeGoals: Number(mAny.homeTeamGoals ?? 0),
           awayGoals: Number(mAny.awayTeamGoals ?? 0),
           team: 'away',
-          date: mAny.end || mAny.resultPublishedAt || mAny.createdAt || '',
+          date: mAny.date || mAny.end || mAny.resultPublishedAt || mAny.createdAt || '',
         });
       }
     }
