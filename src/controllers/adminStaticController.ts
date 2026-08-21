@@ -3,6 +3,7 @@ import { Op } from 'sequelize';
 import StaticContent from '../models/StaticContent';
 import User from '../models/User';
 import { uploadToCloudinary } from '../middleware/upload';
+import { invalidateCache as invalidateMemoryCache } from '../middleware/memoryCache';
 
 /**
  * Middleware: Verify Admin Access
@@ -219,13 +220,6 @@ MANAGEMENT CONTROLS:
     category: 'home',
     title: 'Home Join League Button',
     content: 'Join League',
-    metadata: {}
-  },
-  {
-    key: 'faq',
-    category: 'faq',
-    title: 'Frequently Asked Questions (FAQs)',
-    content: 'Q: How do I earn XP?\nA: You earn XP by playing matches, scoring goals, getting assists, clean sheets, and winning MOTM awards.\n\nQ: Who confirms match results?\nA: Team captains confirm the uploaded scoreline after match end.',
     metadata: {}
   },
   {
@@ -480,8 +474,8 @@ export const ensureDefaultsExist = async () => {
       }
     });
 
-    // Delete announcement_banner and app_rules if they exist in DB
-    await StaticContent.destroy({ where: { key: ['announcement_banner', 'app_rules'] } });
+    // Delete announcement_banner, app_rules, and faq if they exist in DB
+    await StaticContent.destroy({ where: { key: ['announcement_banner', 'app_rules', 'faq'] } });
 
     // Ensure categories for terms_conditions, privacy_policy, contact_details, game_rules, xp_status are updated to 'general'
     await StaticContent.update(
@@ -515,7 +509,8 @@ export const ensureDefaultsExist = async () => {
  */
 export const getPublicStaticContent = async (ctx: Context) => {
   try {
-    await StaticContent.destroy({ where: { key: ['announcement_banner', 'app_rules'] } });
+    ctx.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    await StaticContent.destroy({ where: { key: ['announcement_banner', 'app_rules', 'faq'] } });
     await ensureDefaultsExist();
     const { key } = ctx.params;
 
@@ -574,11 +569,12 @@ export const getPublicStaticContent = async (ctx: Context) => {
  */
 export const getAllStaticContentAdmin = async (ctx: Context) => {
   try {
-    await StaticContent.destroy({ where: { key: ['announcement_banner', 'app_rules'] } });
+    ctx.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    await StaticContent.destroy({ where: { key: ['announcement_banner', 'app_rules', 'faq'] } });
     await ensureDefaultsExist();
     const items = await StaticContent.findAll({
       where: {
-        key: { [Op.notIn]: ['announcement_banner', 'app_rules'] }
+        key: { [Op.notIn]: ['announcement_banner', 'app_rules', 'faq'] }
       },
       order: [['updatedAt', 'DESC']]
     });
@@ -624,6 +620,7 @@ export const upsertStaticContentAdmin = async (ctx: Context) => {
       if (isActive !== undefined) existing.isActive = Boolean(isActive);
       existing.updatedBy = userId;
       await existing.save();
+      invalidateMemoryCache('/api/static-content');
 
       ctx.body = {
         success: true,
@@ -645,6 +642,8 @@ export const upsertStaticContentAdmin = async (ctx: Context) => {
         isActive: isActive !== undefined ? Boolean(isActive) : true,
         updatedBy: userId
       });
+
+      invalidateMemoryCache('/api/static-content');
 
       ctx.body = {
         success: true,
@@ -680,6 +679,7 @@ export const deleteStaticContentAdmin = async (ctx: Context) => {
       return;
     }
 
+    invalidateMemoryCache('/api/static-content');
     ctx.body = {
       success: true,
       message: `Static content '${key}' deleted successfully`
