@@ -8,7 +8,7 @@ import cache from '../utils/cache';
 import { invalidateCache as invalidateMemoryCache } from '../middleware/memoryCache';
 import { sendCaptainConfirmations, notifyCaptainConfirmed, notifyCaptainRevision } from '../modules/notifications';
 import Season from '../models/Season';
-import { checkAndCompleteLeagueAfterMatch, isLeagueLocked } from '../utils/leagueCompletion';
+import { checkAndCompleteLeagueAfterMatch, isLeagueLocked, invalidateLeagueCompletionCache } from '../utils/leagueCompletion';
 
 const { Match, Vote, User, MatchStatistics, League, MatchGuest, MatchAvailability } = models;
 
@@ -2523,6 +2523,9 @@ export const deleteMatch = async (ctx: Context) => {
       if (match.leagueId) {
         cache.clearPattern(`league_${match.leagueId}`);
         cache.clearPattern(`matches_league_${match.leagueId}`);
+        cache.clearPattern(`user_leagues_`);
+        invalidateMemoryCache('/leagues');
+        invalidateLeagueCompletionCache(String(match.leagueId));
       }
     } catch (cacheErr) {
       console.error('Failed to invalidate match cache after delete:', cacheErr);

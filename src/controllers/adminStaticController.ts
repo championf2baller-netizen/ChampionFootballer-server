@@ -35,63 +35,63 @@ const DEFAULT_ITEMS = [
     key: 'reward_scoring_10_consecutive',
     category: 'rewards',
     title: 'Goal Rush',
-    content: 'Scoring in 5 consecutive matches in a league',
+    content: 'Scoring in 5 consecutive matches in a league and season',
     metadata: { xp: 100, rewardId: 'scoring_10_consecutive' }
   },
   {
     key: 'reward_assist_10_consecutive',
     category: 'rewards',
     title: 'Pure Magic',
-    content: 'Assist in 5 consecutive matches in a league',
+    content: 'Assist in 5 consecutive matches in a league and season',
     metadata: { xp: 100, rewardId: 'assist_10_consecutive' }
   },
   {
     key: 'reward_hat_trick_3_matches',
     category: 'rewards',
     title: 'Triple Treat',
-    content: 'Score a hat-trick in 3 consecutive matches in a league',
+    content: 'Score a hat-trick in 3 consecutive matches in a league and season',
     metadata: { xp: 150, rewardId: 'hat_trick_3_matches' }
   },
   {
     key: 'reward_captain_5_wins',
     category: 'rewards',
     title: 'Leader of Legends',
-    content: 'Winning as a captain in 3 matches in a league',
+    content: 'Winning as a captain in 3 matches in a league and season',
     metadata: { xp: 200, rewardId: 'captain_5_wins' }
   },
   {
     key: 'reward_captain_performance_3',
     category: 'rewards',
     title: 'The X-Factor',
-    content: 'Being voted +Mentality player and/or Defensive Impact 5 matches in a league',
+    content: 'Being voted +Mentality player or Defensive Impact 5 matches in a league and season',
     metadata: { xp: 200, rewardId: 'captain_performance_3' }
   },
   {
     key: 'reward_motm_4_consecutive',
     category: 'rewards',
     title: 'Spotlight Star',
-    content: 'Winning Man of the Match award 3 times (not votes) in a league',
+    content: 'Winning Man of the Match award 3 times (not votes) in a league and season',
     metadata: { xp: 250, rewardId: 'motm_4_consecutive' }
   },
   {
     key: 'reward_clean_sheet_5_wins',
     category: 'rewards',
     title: 'Finders Keepers',
-    content: 'Keeping 3 clean sheets as a team in a league',
+    content: 'Keeping 3 clean sheets as a team in a league and season',
     metadata: { xp: 300, rewardId: 'clean_sheet_5_wins' }
   },
   {
     key: 'reward_top_spot_10_matches',
     category: 'rewards',
     title: 'Iron Will',
-    content: 'Playing 90% of matches in a league (min. 10 matches)',
+    content: 'Playing 90% of matches in a league and season',
     metadata: { xp: 400, rewardId: 'top_spot_10_matches' }
   },
   {
     key: 'reward_consecutive_10_victories',
     category: 'rewards',
     title: 'Win Streak X',
-    content: 'Winning in 10 consecutive matches in a league',
+    content: 'Winning in 10 consecutive matches in a league and season',
     metadata: { xp: 500, rewardId: 'consecutive_10_victories' }
   },
 
@@ -495,7 +495,7 @@ export const ensureDefaultsExist = async () => {
       if (!existing) {
         await StaticContent.create(item);
         console.log(`🌱 Created static content item: ${item.key}`);
-      } else if (item.key === 'terms_conditions' && existing.content.length < 500) {
+      } else if (item.category === 'rewards' || item.key.startsWith('reward_') || (item.key === 'terms_conditions' && existing.content.length < 500)) {
         existing.title = item.title;
         existing.content = item.content;
         await existing.save();
