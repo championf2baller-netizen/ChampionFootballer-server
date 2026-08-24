@@ -219,6 +219,7 @@ export const cacheMiddleware = async (ctx: Context, next: Next) => {
     '/remove',
     '/kick',
     '/notifications', // Real-time notifications
+    '/static-content', // Real-time static content CMS updates
   ];
 
   const shouldSkipCache = noCachePatterns.some(pattern => 

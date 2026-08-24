@@ -188,6 +188,31 @@ MANAGEMENT CONTROLS:
     metadata: {}
   },
   {
+    key: 'social_media_links',
+    category: 'footer',
+    title: 'Social Media Icons & Platform Links (Footer)',
+    content: 'Manage social media profile links for Footer icons. Empty links will hide the corresponding icon automatically.',
+    metadata: {
+      socialLinks: {
+        x: 'https://x.com/ChampionF2tball',
+        instagram: 'https://www.instagram.com/championfooballer?igsh=d3F1OGplZ2IxaWdz',
+        facebook: 'https://www.facebook.com/share/19R7iFrmfe/',
+        youtube: 'https://www.youtube.com/@championf2tballer',
+        tiktok: 'https://www.tiktok.com/@championf2tballer?_r=1&_t=ZS-98gdWDxrdZI',
+        pinterest: '',
+        snapchat: '',
+        threads: '',
+        twitch: '',
+        telegram: '',
+        reddit: '',
+        linkedin: '',
+        discord: '',
+        whatsapp: '',
+        website: ''
+      }
+    }
+  },
+  {
     key: 'home_welcome_text',
     category: 'home',
     title: 'Home Welcome Greeting',
@@ -220,6 +245,1264 @@ MANAGEMENT CONTROLS:
     category: 'home',
     title: 'Home Join League Button',
     content: 'Join League',
+    metadata: {}
+  },
+
+  // --- MAIN LANDING PAGE (FIRST PAGE) STATIC CONTENT & IMAGES ---
+  {
+    key: 'page_landing_images',
+    category: 'landing',
+    title: 'Main Landing Page Banners & Card Images (Upload Images)',
+    content: '',
+    metadata: {
+      stepImages: {
+        hero_top_bg: '',
+        hero_grid_team1: '',
+        hero_grid_orange: '',
+        feature1_img: '',
+        feature2_img: '',
+        feature3_img: '',
+        feature4_img: ''
+      }
+    }
+  },
+  {
+    key: 'page_main_card1_text',
+    category: 'landing',
+    title: 'Main Page Team Card Text 1',
+    content: '"I GOT 99 PROBLEMS BUT WINNING AIN\'T ONE"',
+    metadata: {}
+  },
+  {
+    key: 'page_main_card2_text',
+    category: 'landing',
+    title: 'Main Page Hub Banner Text 2',
+    content: 'CHAMPION FOOTBALLER IS YOUR ULTIMATE HUB FOR FOOTBALL, PERFORMANCE, AND BRAGGING RIGHTS!',
+    metadata: {}
+  },
+  {
+    key: 'page_main_feature1_title',
+    category: 'landing',
+    title: 'Main Page Feature Card 1 Title',
+    content: 'CREATE YOUR PLAYER CARD',
+    metadata: {}
+  },
+  {
+    key: 'page_main_feature2_title',
+    category: 'landing',
+    title: 'Main Page Feature Card 2 Title',
+    content: 'CREATE LEAGUES & MATCHES',
+    metadata: {}
+  },
+  {
+    key: 'page_main_feature3_title',
+    category: 'landing',
+    title: 'Main Page Feature Card 3 Title',
+    content: 'TRACK YOUR PERFORMANCE',
+    metadata: {}
+  },
+  {
+    key: 'page_main_feature4_title',
+    category: 'landing',
+    title: 'Main Page Feature Card 4 Title',
+    content: 'WIN TROPHIES & REWARDS',
+    metadata: {}
+  },
+  {
+    key: 'page_auth_login_btn',
+    category: 'landing',
+    title: 'Main Landing Sign In Button Label',
+    content: 'SIGN IN',
+    metadata: {}
+  },
+  {
+    key: 'page_auth_forgot_pw_link',
+    category: 'landing',
+    title: 'Main Landing Forgot Password Link Text',
+    content: 'Forgot your password?',
+    metadata: {}
+  },
+  {
+    key: 'page_auth_terms_label',
+    category: 'landing',
+    title: 'Main Landing Terms Checkbox Text',
+    content: 'I accept the terms and conditions',
+    metadata: {}
+  },
+  {
+    key: 'page_auth_register_btn',
+    category: 'landing',
+    title: 'Main Landing Register Button Label',
+    content: 'Register',
+    metadata: {}
+  },
+
+  // --- PLATFORM PAGES STATIC CONTENT INFO BANNERS ---
+
+  {
+    key: 'page_all_matches_heading',
+    category: 'matches',
+    title: 'All Matches Main Heading',
+    content: 'Matches',
+    metadata: {}
+  },
+  {
+    key: 'page_all_matches_new_btn',
+    category: 'matches',
+    title: 'All Matches New Match Button',
+    content: '+ New Match',
+    metadata: {}
+  },
+  {
+    key: 'page_all_matches_year_placeholder',
+    category: 'matches',
+    title: 'All Matches Year Filter Label',
+    content: 'All Years',
+    metadata: {}
+  },
+  {
+    key: 'page_all_matches_league_placeholder',
+    category: 'matches',
+    title: 'All Matches Select League Label',
+    content: 'Select League',
+    metadata: {}
+  },
+  {
+    key: 'page_all_matches_season_placeholder',
+    category: 'matches',
+    title: 'All Matches Select Season Label',
+    content: 'All Seasons',
+    metadata: {}
+  },
+  {
+    key: 'page_all_matches_clear_btn',
+    category: 'matches',
+    title: 'All Matches Clear Filter Button',
+    content: 'Clear',
+    metadata: {}
+  },
+  {
+    key: 'page_all_matches_results_tab',
+    category: 'matches',
+    title: 'All Matches Results Tab Label',
+    content: 'Results',
+    metadata: {}
+  },
+  {
+    key: 'page_all_matches_fixtures_tab',
+    category: 'matches',
+    title: 'All Matches Fixtures Tab Label',
+    content: 'Fixtures',
+    metadata: {}
+  },
+  {
+    key: 'page_all_matches_archived_tab',
+    category: 'matches',
+    title: 'All Matches Archived Tab Label',
+    content: 'Archived',
+    metadata: {}
+  },
+  {
+    key: 'page_all_matches_all_tab',
+    category: 'matches',
+    title: 'All Matches All Tab Label',
+    content: 'All Matches',
+    metadata: {}
+  },
+  {
+    key: 'page_all_players_heading',
+    category: 'players',
+    title: 'All Players Main Heading',
+    content: 'ALL PLAYERS',
+    metadata: {}
+  },
+  {
+    key: 'page_all_players_search_placeholder',
+    category: 'players',
+    title: 'All Players Search Input Placeholder',
+    content: 'Search Player by name...',
+    metadata: {}
+  },
+  {
+    key: 'page_all_players_year_placeholder',
+    category: 'players',
+    title: 'All Players Year Filter Label',
+    content: 'All Years',
+    metadata: {}
+  },
+  {
+    key: 'page_all_players_league_placeholder',
+    category: 'players',
+    title: 'All Players Select League Label',
+    content: 'Select League',
+    metadata: {}
+  },
+  {
+    key: 'page_all_players_season_placeholder',
+    category: 'players',
+    title: 'All Players Select Season Label',
+    content: 'All Seasons',
+    metadata: {}
+  },
+  {
+    key: 'page_all_players_position_placeholder',
+    category: 'players',
+    title: 'All Players Position Filter Label',
+    content: 'All Positions',
+    metadata: {}
+  },
+  {
+    key: 'page_all_players_clear_btn',
+    category: 'players',
+    title: 'All Players Clear Filter Button',
+    content: 'Clear',
+    metadata: {}
+  },
+  {
+    key: 'page_player_stats_heading',
+    category: 'player_stats',
+    title: 'Player Stats Main Heading',
+    content: 'PLAYER STATS',
+    metadata: {}
+  },
+  {
+    key: 'page_player_stats_search_placeholder',
+    category: 'player_stats',
+    title: 'Player Stats Search Input Placeholder',
+    content: 'Search player name and hit enter...',
+    metadata: {}
+  },
+  {
+    key: 'page_player_stats_year_placeholder',
+    category: 'player_stats',
+    title: 'Player Stats Year Filter Label',
+    content: 'All Years',
+    metadata: {}
+  },
+  {
+    key: 'page_player_stats_league_placeholder',
+    category: 'player_stats',
+    title: 'Player Stats Select League Label',
+    content: 'Select League',
+    metadata: {}
+  },
+  {
+    key: 'page_player_stats_season_placeholder',
+    category: 'player_stats',
+    title: 'Player Stats Select Season Label',
+    content: 'All Seasons',
+    metadata: {}
+  },
+  {
+    key: 'page_player_stats_clear_btn',
+    category: 'player_stats',
+    title: 'Player Stats Clear Filter Button',
+    content: 'Clear',
+    metadata: {}
+  },
+  // Navigation Tabs
+  {
+    key: 'page_player_stats_tab_current',
+    category: 'player_stats',
+    title: 'Player Stats Current Tab Label',
+    content: 'Current',
+    metadata: {}
+  },
+  {
+    key: 'page_player_stats_tab_career',
+    category: 'player_stats',
+    title: 'Player Stats Career Stats Tab Label',
+    content: 'Career Stats',
+    metadata: {}
+  },
+  {
+    key: 'page_player_stats_tab_trophies',
+    category: 'player_stats',
+    title: 'Player Stats Trophies Tab Label',
+    content: 'Trophies',
+    metadata: {}
+  },
+  {
+    key: 'page_player_stats_tab_rewards',
+    category: 'player_stats',
+    title: 'Player Stats Rewards Tab Label',
+    content: 'Rewards',
+    metadata: {}
+  },
+  {
+    key: 'page_player_stats_tab_history',
+    category: 'player_stats',
+    title: 'Player Stats History Tab Label',
+    content: 'History',
+    metadata: {}
+  },
+  // Stats Summary Row
+  {
+    key: 'page_player_stats_label_apps',
+    category: 'player_stats',
+    title: 'Player Stats APPS Label',
+    content: 'APPS',
+    metadata: {}
+  },
+  {
+    key: 'page_player_stats_label_goals',
+    category: 'player_stats',
+    title: 'Player Stats GOALS Label',
+    content: 'GOALS',
+    metadata: {}
+  },
+  {
+    key: 'page_player_stats_label_assists',
+    category: 'player_stats',
+    title: 'Player Stats ASSISTS Label',
+    content: 'ASSISTS',
+    metadata: {}
+  },
+  {
+    key: 'page_player_stats_label_motm',
+    category: 'player_stats',
+    title: 'Player Stats MOTM VOTES Label',
+    content: 'MOTM VOTES',
+    metadata: {}
+  },
+  {
+    key: 'page_player_stats_label_defensive',
+    category: 'player_stats',
+    title: 'Player Stats DEFENSIVE IMP. Label',
+    content: 'DEFENSIVE IMP.',
+    metadata: {}
+  },
+  {
+    key: 'page_player_stats_label_cleansheet',
+    category: 'player_stats',
+    title: 'Player Stats CLEAN SHEET Label',
+    content: 'CLEAN SHEET',
+    metadata: {}
+  },
+  {
+    key: 'page_player_stats_label_totalxp',
+    category: 'player_stats',
+    title: 'Player Stats TOTAL XP Label',
+    content: 'TOTAL XP',
+    metadata: {}
+  },
+  // Trophies Card
+  {
+    key: 'page_player_stats_trophies_title',
+    category: 'player_stats',
+    title: 'Trophies & Awards Section Title',
+    content: 'Trophies & Awards',
+    metadata: {}
+  },
+  {
+    key: 'page_player_stats_trophies_empty',
+    category: 'player_stats',
+    title: 'Trophies Empty Text',
+    content: 'No trophies yet',
+    metadata: {}
+  },
+  // Rewards Card
+  {
+    key: 'page_player_stats_rewards_title',
+    category: 'player_stats',
+    title: 'Rewards XP Section Title',
+    content: 'Rewards XP',
+    metadata: {}
+  },
+  {
+    key: 'page_player_stats_rewards_empty',
+    category: 'player_stats',
+    title: 'Rewards Empty Text',
+    content: 'No rewards earned yet',
+    metadata: {}
+  },
+  // History & Records Card
+  {
+    key: 'page_player_stats_history_title',
+    category: 'player_stats',
+    title: 'History & Records Section Title',
+    content: 'History & Records',
+    metadata: {}
+  },
+  {
+    key: 'page_player_stats_history_win_streak',
+    category: 'player_stats',
+    title: 'Longest Win Streak Label',
+    content: 'Longest Win Streak',
+    metadata: {}
+  },
+  {
+    key: 'page_player_stats_history_most_goals',
+    category: 'player_stats',
+    title: 'Most Goals Scored In A League Label',
+    content: 'Most Goals Scored In A League',
+    metadata: {}
+  },
+  {
+    key: 'page_player_stats_history_most_motm',
+    category: 'player_stats',
+    title: 'Most MOTM Votes Received In A League Label',
+    content: 'Most MOTM Votes Received In A League',
+    metadata: {}
+  },
+  {
+    key: 'page_player_stats_history_win_margin',
+    category: 'player_stats',
+    title: 'Largest Win Margin Label',
+    content: 'Largest Win Margin',
+    metadata: {}
+  },
+  {
+    key: 'page_player_stats_history_highest_xp',
+    category: 'player_stats',
+    title: 'Highest XP Points Received In A League Label',
+    content: 'Highest XP Points Received In A League',
+    metadata: {}
+  },
+  {
+    key: 'page_league_details_info',
+    category: 'leagues',
+    title: 'League Details Info Banner',
+    content: 'Welcome to the League overview! View members, manage settings, and check standings.',
+    metadata: {}
+  },
+  {
+    key: 'league_details_info',
+    category: 'leagues',
+    title: 'League Details Info Banner (Legacy)',
+    content: 'Welcome to the League overview! View members, manage settings, and check standings.',
+    metadata: {}
+  },
+  {
+    key: 'player_career_heading',
+    category: 'career',
+    title: 'Player Career Main Heading',
+    content: 'PERFORMANCE DASHBOARD',
+    metadata: {}
+  },
+  {
+    key: 'page_player_career_heading',
+    category: 'career',
+    title: 'Player Career Heading (Page)',
+    content: 'PERFORMANCE DASHBOARD',
+    metadata: {}
+  },
+  {
+    key: 'page_player_career_total_xp_legend',
+    category: 'career',
+    title: 'Player Career Total XP Chart Legend',
+    content: 'Total XP Points',
+    metadata: {}
+  },
+  {
+    key: 'page_player_career_cumulative_xp_legend',
+    category: 'career',
+    title: 'Player Career Cumulative XP Chart Legend',
+    content: 'Cumulative XP Points',
+    metadata: {}
+  },
+  {
+    key: 'page_player_career_influence_all_leagues_btn',
+    category: 'career',
+    title: 'Player Career All Leagues Filter Button',
+    content: 'All Leagues',
+    metadata: {}
+  },
+  {
+    key: 'page_player_career_influence_current_btn',
+    category: 'career',
+    title: 'Player Career Current Filter Button',
+    content: 'Current',
+    metadata: {}
+  },
+  {
+    key: 'page_player_career_search_placeholder',
+    category: 'career',
+    title: 'Player Career Search Input Placeholder',
+    content: 'Search player name and hit enter...',
+    metadata: {}
+  },
+  {
+    key: 'page_player_career_year_placeholder',
+    category: 'career',
+    title: 'Player Career Year Filter Label',
+    content: 'All Years',
+    metadata: {}
+  },
+  {
+    key: 'page_player_career_league_placeholder',
+    category: 'career',
+    title: 'Player Career Select League Label',
+    content: 'Select League',
+    metadata: {}
+  },
+  {
+    key: 'page_player_career_season_placeholder',
+    category: 'career',
+    title: 'Player Career Select Season Label',
+    content: 'All Seasons',
+    metadata: {}
+  },
+  {
+    key: 'page_player_career_clear_btn',
+    category: 'career',
+    title: 'Player Career Clear Filter Button',
+    content: 'Clear',
+    metadata: {}
+  },
+  {
+    key: 'page_player_career_influence_title',
+    category: 'career',
+    title: 'Player Career Influence Card Title',
+    content: 'INFLUENCE',
+    metadata: {}
+  },
+  {
+    key: 'page_player_career_winloss_title',
+    category: 'career',
+    title: 'Player Career Win/Loss/Draw Title',
+    content: 'WIN/LOSS/DRAW',
+    metadata: {}
+  },
+  {
+    key: 'page_player_career_impact_title',
+    category: 'career',
+    title: 'Player Career Impact Section Title',
+    content: 'IMPACT',
+    metadata: {}
+  },
+  {
+    key: 'page_player_career_strengths_title',
+    category: 'career',
+    title: 'Player Career Top Strengths Section Title',
+    content: 'YOUR TOP STRENGTHS',
+    metadata: {}
+  },
+  {
+    key: 'page_player_career_focus_title',
+    category: 'career',
+    title: 'Player Career Focus Area Section Title',
+    content: 'FOCUS AREA',
+    metadata: {}
+  },
+  {
+    key: 'page_player_career_table_header_metric',
+    category: 'career',
+    title: 'Player Career Table Metric Header',
+    content: 'Metric',
+    metadata: {}
+  },
+  {
+    key: 'page_player_career_table_header_your_stats',
+    category: 'career',
+    title: 'Player Career Table Your Stats Header',
+    content: 'Your Stats',
+    metadata: {}
+  },
+  {
+    key: 'page_player_career_table_header_league_avg',
+    category: 'career',
+    title: 'Player Career Table League Average Header',
+    content: 'League Average',
+    metadata: {}
+  },
+  {
+    key: 'page_player_career_xg_label',
+    category: 'career',
+    title: 'Player Career Expected Goals Metric Label',
+    content: 'Expected to score a goal (xG)',
+    metadata: {}
+  },
+  {
+    key: 'page_player_career_xa_label',
+    category: 'career',
+    title: 'Player Career Expected Assists Metric Label',
+    content: 'Expected to assist a goal (xA)',
+    metadata: {}
+  },
+  {
+    key: 'page_player_career_xcs_label',
+    category: 'career',
+    title: 'Player Career Expected Clean Sheet Metric Label',
+    content: 'Expected to keep Clean Sheet (xCS)',
+    metadata: {}
+  },
+  {
+    key: 'page_player_career_winrate_label',
+    category: 'career',
+    title: 'Player Career Win Rate Metric Label',
+    content: 'Win rate',
+    metadata: {}
+  },
+  {
+    key: 'page_player_career_strengths_empty',
+    category: 'career',
+    title: 'Player Career Strengths Empty State Text',
+    content: 'No strengths identified yet. Play more matches to unlock your strengths.',
+    metadata: {}
+  },
+  {
+    key: 'page_player_career_key_insight_title',
+    category: 'career',
+    title: 'Player Career Key Insight Header',
+    content: 'Key Insight / Top Strength',
+    metadata: {}
+  },
+  {
+    key: 'page_player_career_metric_goals',
+    category: 'career',
+    title: 'Player Career Metric Goals Label',
+    content: 'Goals',
+    metadata: {}
+  },
+  {
+    key: 'page_player_career_metric_assists',
+    category: 'career',
+    title: 'Player Career Metric Assists Label',
+    content: 'Assists',
+    metadata: {}
+  },
+  {
+    key: 'page_player_career_metric_clean_sheets',
+    category: 'career',
+    title: 'Player Career Metric Clean Sheets Label',
+    content: 'Clean Sheets',
+    metadata: {}
+  },
+  {
+    key: 'page_player_career_metric_motm_votes',
+    category: 'career',
+    title: 'Player Career Metric MOTM Votes Label',
+    content: 'MOTM Votes',
+    metadata: {}
+  },
+  {
+    key: 'page_player_career_metric_defensive_impact_votes',
+    category: 'career',
+    title: 'Player Career Metric Defensive Impact Votes Label',
+    content: 'Defensive Impact Votes',
+    metadata: {}
+  },
+  {
+    key: 'page_player_career_metric_game_contribution_index',
+    category: 'career',
+    title: 'Player Career Metric Game Contribution Index Label',
+    content: 'Game Contribution Index',
+    metadata: {}
+  },
+  {
+    key: 'page_player_career_metric_captains_performance',
+    category: 'career',
+    title: 'Player Career Metric Captains Performance Label',
+    content: 'Captains Performance',
+    metadata: {}
+  },
+  {
+    key: 'page_player_career_metric_wins',
+    category: 'career',
+    title: 'Player Career Metric Wins Label',
+    content: 'Wins',
+    metadata: {}
+  },
+  {
+    key: 'page_player_career_metric_pct_impact',
+    category: 'career',
+    title: 'Player Career Metric % Impact Label',
+    content: '% Impact',
+    metadata: {}
+  },
+  // --- TROPHY ROOM PAGE STATIC CONTENT ---
+  {
+    key: 'page_trophy_room_heading',
+    category: 'trophy',
+    title: 'Trophy Room Main Heading',
+    content: 'TROPHY ROOM',
+    metadata: {}
+  },
+  {
+    key: 'page_trophy_room_standings_label',
+    category: 'trophy',
+    title: 'Trophy Room Standings Label',
+    content: 'Standings:',
+    metadata: {}
+  },
+  {
+    key: 'page_trophy_room_last_updated_label',
+    category: 'trophy',
+    title: 'Trophy Room Last Updated Label',
+    content: 'Last Updated:',
+    metadata: {}
+  },
+  {
+    key: 'page_trophy_room_year_placeholder',
+    category: 'trophy',
+    title: 'Trophy Room Year Filter Label',
+    content: 'All Years',
+    metadata: {}
+  },
+  {
+    key: 'page_trophy_room_league_placeholder',
+    category: 'trophy',
+    title: 'Trophy Room Select League Label',
+    content: 'Select League',
+    metadata: {}
+  },
+  {
+    key: 'page_trophy_room_season_placeholder',
+    category: 'trophy',
+    title: 'Trophy Room Select Season Label',
+    content: 'All Seasons',
+    metadata: {}
+  },
+  {
+    key: 'page_trophy_room_clear_btn',
+    category: 'trophy',
+    title: 'Trophy Room Clear Filter Button',
+    content: 'Clear',
+    metadata: {}
+  },
+  {
+    key: 'page_trophy_room_tab_league',
+    category: 'trophy',
+    title: 'Trophy Room League Awards Tab Label',
+    content: 'LEAGUE AWARDS',
+    metadata: {}
+  },
+  {
+    key: 'page_trophy_room_tab_achievements',
+    category: 'trophy',
+    title: 'Trophy Room Achievements Tab Label',
+    content: 'Achievements',
+    metadata: {}
+  },
+  {
+    key: 'page_trophy_room_league_awards_title',
+    category: 'trophy',
+    title: 'League Awards Section Title',
+    content: 'LEAGUE AWARDS',
+    metadata: {}
+  },
+  {
+    key: 'page_trophy_room_individual_awards_title',
+    category: 'trophy',
+    title: 'Individual Awards Section Title',
+    content: 'INDIVIDUAL AWARDS',
+    metadata: {}
+  },
+  // --- MY PROFILE PAGE STATIC CONTENT ---
+  {
+    key: 'page_profile_heading',
+    category: 'profile',
+    title: 'My Profile Main Heading',
+    content: 'MY PROFILE',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_images',
+    category: 'profile',
+    title: 'Profile Page All Skill & Section Images (Overview)',
+    content: '',
+    metadata: {
+      stepImages: {
+        dribbling: '',
+        shooting: '',
+        passing: '',
+        pace: '',
+        defending: '',
+        physical: '',
+        avatar: '',
+        step1: '',
+        step2: '',
+        step3: ''
+      }
+    }
+  },
+  {
+    key: 'page_profile_step1_title',
+    category: 'profile',
+    title: 'Step 1 Stepper Label (Personal Details)',
+    content: 'PERSONAL DETAILS',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_step2_title',
+    category: 'profile',
+    title: 'Step 2 Stepper Label (Skills & Attributes)',
+    content: 'SKILLS & ATTRIBUTES',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_step3_title',
+    category: 'profile',
+    title: 'Step 3 Stepper Label (Brief Details)',
+    content: 'BRIEF DETAILS',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_skills_title',
+    category: 'profile',
+    title: 'Skills Overview Section Title',
+    content: 'Skills Overview',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_btn_home',
+    category: 'profile',
+    title: 'Home Button Label',
+    content: 'Home',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_btn_edit',
+    category: 'profile',
+    title: 'Edit Profile Button Label',
+    content: 'Edit Profile',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_btn_save',
+    category: 'profile',
+    title: 'Save Profile Button Label',
+    content: 'Save Profile',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_btn_back',
+    category: 'profile',
+    title: 'Back Button Label',
+    content: 'Back',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_label_age',
+    category: 'profile',
+    title: 'Age Label',
+    content: 'Age:',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_label_email',
+    category: 'profile',
+    title: 'Email Label',
+    content: 'Email:',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_label_foot',
+    category: 'profile',
+    title: 'Preferred Foot Label',
+    content: 'Foot:',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_label_phone',
+    category: 'profile',
+    title: 'Phone Label',
+    content: 'Phone:',
+    metadata: {}
+  },
+  // --- STEP 2: BRIEF DETAILS FIELDS ---
+  {
+    key: 'page_profile_brief_title',
+    category: 'profile',
+    title: 'Brief Details Section Title',
+    content: 'BRIEF DETAILS',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_label_firstname',
+    category: 'profile',
+    title: 'First Name Input Label',
+    content: 'First Name',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_label_lastname',
+    category: 'profile',
+    title: 'Last Name Input Label',
+    content: 'Last Name',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_label_email_input',
+    category: 'profile',
+    title: 'Email Input Label',
+    content: 'Email',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_label_password',
+    category: 'profile',
+    title: 'Change Password Label',
+    content: 'Change Password',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_label_country',
+    category: 'profile',
+    title: 'Country/Region Input Label',
+    content: 'Country/Region',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_label_city',
+    category: 'profile',
+    title: 'City/State Input Label',
+    content: 'City/State',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_label_phone_input',
+    category: 'profile',
+    title: 'Phone Number Input Label',
+    content: 'Phone Number',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_label_age_input',
+    category: 'profile',
+    title: 'Age Input Label',
+    content: 'Age',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_label_gender',
+    category: 'profile',
+    title: 'Gender Input Label',
+    content: 'Gender',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_label_foot_input',
+    category: 'profile',
+    title: 'Preferred Foot Input Label',
+    content: 'Preferred Foot',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_label_position_type',
+    category: 'profile',
+    title: 'Position Type Label',
+    content: 'Position Type',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_label_specific_position',
+    category: 'profile',
+    title: 'Specific Position Label',
+    content: 'Specific Position',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_label_playing_style',
+    category: 'profile',
+    title: 'Playing Style Label',
+    content: 'Playing Style',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_btn_update',
+    category: 'profile',
+    title: 'Update Profile Button Label',
+    content: 'Update Profile',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_btn_previous',
+    category: 'profile',
+    title: 'Previous Button Label',
+    content: 'Previous',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_btn_delete',
+    category: 'profile',
+    title: 'Delete Account Button Label',
+    content: 'Delete Account',
+    metadata: {}
+  },
+  // --- STEP 3: SKILLS & ATTRIBUTES ---
+  {
+    key: 'page_profile_skills_step_title',
+    category: 'profile',
+    title: 'Skills & Attributes Section Title',
+    content: 'SKILLS & ATTRIBUTES',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_skill_dribbling',
+    category: 'profile',
+    title: 'Dribbling Skill Name',
+    content: 'Dribbling',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_skill_shooting',
+    category: 'profile',
+    title: 'Shooting Skill Name',
+    content: 'Shooting',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_skill_passing',
+    category: 'profile',
+    title: 'Passing Skill Name',
+    content: 'Passing',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_skill_pace',
+    category: 'profile',
+    title: 'Pace Skill Name',
+    content: 'Pace',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_skill_defending',
+    category: 'profile',
+    title: 'Defending Skill Name',
+    content: 'Defending',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_skill_physical',
+    category: 'profile',
+    title: 'Physical Skill Name',
+    content: 'Physical',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_btn_next',
+    category: 'profile',
+    title: 'Next Button Label',
+    content: 'Next',
+    metadata: {}
+  },
+  // --- PROFILE STATIC IMAGES ---
+  {
+    key: 'page_profile_img_dribbling',
+    category: 'profile',
+    title: 'Dribbling Skill Icon/Image',
+    content: '/images/Dribbling.png',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_img_shooting',
+    category: 'profile',
+    title: 'Shooting Skill Icon/Image',
+    content: '/images/shooting.png',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_img_passing',
+    category: 'profile',
+    title: 'Passing Skill Icon/Image',
+    content: '/images/passing.png',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_img_pace',
+    category: 'profile',
+    title: 'Pace Skill Icon/Image',
+    content: '/images/pace.png',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_img_defending',
+    category: 'profile',
+    title: 'Defending Skill Icon/Image',
+    content: '/images/defending.png',
+    metadata: {}
+  },
+  {
+    key: 'page_profile_img_physical',
+    category: 'profile',
+    title: 'Physical Skill Icon/Image',
+    content: '/images/physical.png',
+    metadata: {}
+  },
+
+  // --- ALL LEAGUES PAGE & SETTINGS POPUP STATIC CONTENT ---
+  {
+    key: 'page_all_leagues_heading',
+    category: 'leagues',
+    title: 'All Leagues Main Heading',
+    content: 'LEAGUES',
+    metadata: {}
+  },
+  {
+    key: 'page_all_leagues_create_btn',
+    category: 'leagues',
+    title: 'All Leagues Create Button',
+    content: '+ Create New League',
+    metadata: {}
+  },
+  {
+    key: 'page_all_leagues_join_placeholder',
+    category: 'leagues',
+    title: 'All Leagues Join Input Placeholder',
+    content: 'Enter invite code',
+    metadata: {}
+  },
+  {
+    key: 'page_all_leagues_join_btn',
+    category: 'leagues',
+    title: 'All Leagues Join Button',
+    content: 'Join League',
+    metadata: {}
+  },
+  {
+    key: 'page_all_leagues_year_placeholder',
+    category: 'leagues',
+    title: 'All Leagues Year Filter Label',
+    content: 'All Years',
+    metadata: {}
+  },
+  {
+    key: 'page_all_leagues_select_placeholder',
+    category: 'leagues',
+    title: 'All Leagues Filter Dropdown Label',
+    content: 'All Leagues',
+    metadata: {}
+  },
+  {
+    key: 'page_all_leagues_clear_btn',
+    category: 'leagues',
+    title: 'All Leagues Filter Clear Button',
+    content: 'Clear',
+    metadata: {}
+  },
+  {
+    key: 'page_all_leagues_live_tab',
+    category: 'leagues',
+    title: 'All Leagues Live Tab Label',
+    content: 'Current / Live Leagues',
+    metadata: {}
+  },
+  {
+    key: 'page_all_leagues_completed_tab',
+    category: 'leagues',
+    title: 'All Leagues Completed Tab Label',
+    content: 'Completed Leagues',
+    metadata: {}
+  },
+  {
+    key: 'page_all_leagues_card_players_label',
+    category: 'leagues',
+    title: 'League Card Players Label',
+    content: 'Players',
+    metadata: {}
+  },
+  {
+    key: 'page_all_leagues_card_matches_label',
+    category: 'leagues',
+    title: 'League Card Matches Label',
+    content: 'Total Matches:',
+    metadata: {}
+  },
+  {
+    key: 'page_all_leagues_card_invite_label',
+    category: 'leagues',
+    title: 'League Card Invite Code Label',
+    content: 'Invite Code:',
+    metadata: {}
+  },
+  {
+    key: 'page_all_leagues_card_admin_label',
+    category: 'leagues',
+    title: 'League Card Admin Label',
+    content: 'League Admin:',
+    metadata: {}
+  },
+  {
+    key: 'page_all_leagues_card_view_btn',
+    category: 'leagues',
+    title: 'League Card View Button Label',
+    content: 'View',
+    metadata: {}
+  },
+  {
+    key: 'modal_create_league_title',
+    category: 'leagues',
+    title: 'Create League Modal Title',
+    content: 'Create New League',
+    metadata: {}
+  },
+  {
+    key: 'modal_create_league_subtitle',
+    category: 'leagues',
+    title: 'Create League Modal Subtitle',
+    content: 'Fill in the details below to set up your new football league',
+    metadata: {}
+  },
+  {
+    key: 'modal_create_league_name_label',
+    category: 'leagues',
+    title: 'Create League Name Input Label',
+    content: 'League Name',
+    metadata: {}
+  },
+  {
+    key: 'modal_create_league_submit_btn',
+    category: 'leagues',
+    title: 'Create League Submit Button',
+    content: 'Create League',
+    metadata: {}
+  },
+  {
+    key: 'modal_league_details_members_tab',
+    category: 'leagues',
+    title: 'League Details Popup Members Tab',
+    content: 'League Members',
+    metadata: {}
+  },
+  {
+    key: 'modal_league_details_leave_season_btn',
+    category: 'leagues',
+    title: 'League Details Popup Leave Season Button',
+    content: 'Leave Season',
+    metadata: {}
+  },
+  {
+    key: 'modal_league_details_leave_league_btn',
+    category: 'leagues',
+    title: 'League Details Popup Leave League Button',
+    content: 'Leave League',
+    metadata: {}
+  },
+  {
+    key: 'modal_league_details_settings_btn',
+    category: 'leagues',
+    title: 'League Details Popup Settings Button',
+    content: 'League Settings',
+    metadata: {}
+  },
+  {
+    key: 'modal_league_settings_title',
+    category: 'leagues',
+    title: 'League Settings Sub-Modal Title',
+    content: 'League Settings',
+    metadata: {}
+  },
+  {
+    key: 'modal_league_settings_save_btn',
+    category: 'leagues',
+    title: 'League Settings Save Button',
+    content: 'Save Changes',
+    metadata: {}
+  },
+  {
+    key: 'modal_league_settings_cancel_btn',
+    category: 'leagues',
+    title: 'League Settings Cancel Button',
+    content: 'Cancel',
+    metadata: {}
+  },
+  {
+    key: 'page_all_leagues_archived_heading',
+    category: 'leagues',
+    title: 'Archived Leagues Section Heading',
+    content: 'ARCHIVED LEAGUES & SEASONS',
     metadata: {}
   },
   {
@@ -404,103 +1687,167 @@ This Cookie Policy explains how Champion Footballer uses cookies and similar tec
 import bcrypt from 'bcrypt';
 
 let hasSeeded = false;
+let seedPromise: Promise<void> | null = null;
 
 /**
  * Helper: Auto-seed Super Admin user & default static content
  */
 export const ensureDefaultsExist = async () => {
   if (hasSeeded) return;
-  try {
-    const sequelize = User.sequelize!;
-
-    // 0. Ensure PostgreSQL table schema is updated with isAdmin and role columns
-    await sequelize.query(`
-      ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "isAdmin" BOOLEAN DEFAULT false;
-      ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "role" VARCHAR(255) DEFAULT 'PLAYER';
-      CREATE TABLE IF NOT EXISTS "static_contents" (
-        "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        "key" VARCHAR(255) UNIQUE NOT NULL,
-        "category" VARCHAR(255) NOT NULL DEFAULT 'general',
-        "title" VARCHAR(255) NOT NULL,
-        "content" TEXT NOT NULL DEFAULT '',
-        "metadata" JSONB DEFAULT '{}',
-        "isActive" BOOLEAN NOT NULL DEFAULT true,
-        "updatedBy" VARCHAR(255),
-        "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-        "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
-      );
-    `);
-
-    // 1. Seed Super Admin User
-    const adminEmail = 'admin@championfootballer.co.uk';
-    let adminUser = await User.findOne({ where: { email: adminEmail } });
-
-    if (!adminUser) {
-      const hashedPassword = await bcrypt.hash('Admin@123456', 10);
-      adminUser = await User.create({
-        firstName: 'Super',
-        lastName: 'Admin',
-        email: adminEmail,
-        password: hashedPassword,
-        isVerified: true,
-        isAdmin: true,
-        role: 'SUPER_ADMIN',
-        provider: 'local',
-        providerId: null,
-      });
-      console.log('✅ Created Default Super Admin User:', adminEmail);
-    } else if (!adminUser.isAdmin || adminUser.role !== 'SUPER_ADMIN') {
-      adminUser.isAdmin = true;
-      adminUser.role = 'SUPER_ADMIN';
-      await adminUser.save();
-      console.log('✅ Granted Super Admin Privileges to:', adminEmail);
-    }
-
-    // 2. Clean up any obsolete keys (e.g. old single rewards_info key or temporary test keys)
-    await StaticContent.destroy({
-      where: {
-        key: [
-          'rewards_info',
-          'reward_hat_trick_hero',
-          'reward_captain_leader',
-          'reward_assist_king',
-          'reward_goal_machine',
-          'reward_defensive_wall',
-          'reward_motm_master',
-          'reward_clean_sheet',
-          'reward_iron_will',
-          'reward_invincible_streak'
-        ]
-      }
-    });
-
-    // Delete announcement_banner, app_rules, and faq if they exist in DB
-    await StaticContent.destroy({ where: { key: ['announcement_banner', 'app_rules', 'faq'] } });
-
-    // Ensure categories for terms_conditions, privacy_policy, contact_details, game_rules, xp_status are updated to 'general'
-    await StaticContent.update(
-      { category: 'general' },
-      { where: { key: ['terms_conditions', 'privacy_policy', 'contact_details', 'game_rules', 'xp_status'] } }
-    );
-
-    // 3. Seed missing Static Content Items
-    for (const item of DEFAULT_ITEMS) {
-      const existing = await StaticContent.findOne({ where: { key: item.key } });
-      if (!existing) {
-        await StaticContent.create(item);
-        console.log(`🌱 Created static content item: ${item.key}`);
-      } else if (item.category === 'rewards' || item.key.startsWith('reward_') || (item.key === 'terms_conditions' && existing.content.length < 500)) {
-        existing.title = item.title;
-        existing.content = item.content;
-        await existing.save();
-        console.log(`🔄 Seeded complete text for static content item '${item.key}'`);
-      }
-    }
-    hasSeeded = true;
-  } catch (err) {
-    console.error('StaticContent & Admin seed check failed:', err);
+  if (seedPromise) {
+    await seedPromise;
+    return;
   }
+
+  seedPromise = (async () => {
+    try {
+      const sequelize = User.sequelize!;
+
+      // 0. Ensure PostgreSQL table schema is updated with isAdmin and role columns
+      await sequelize.query(`
+        ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "isAdmin" BOOLEAN DEFAULT false;
+        ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "role" VARCHAR(255) DEFAULT 'PLAYER';
+        CREATE TABLE IF NOT EXISTS "static_contents" (
+          "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          "key" VARCHAR(255) UNIQUE NOT NULL,
+          "category" VARCHAR(255) NOT NULL DEFAULT 'general',
+          "title" VARCHAR(255) NOT NULL,
+          "content" TEXT NOT NULL DEFAULT '',
+          "metadata" JSONB DEFAULT '{}',
+          "isActive" BOOLEAN NOT NULL DEFAULT true,
+          "updatedBy" VARCHAR(255),
+          "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+          "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+        );
+      `);
+
+      // 1. Ensure Default Admin User Exists
+      const adminEmail = process.env.DEFAULT_ADMIN_EMAIL || 'admin@championfootballer.co.uk';
+      const adminPassword = process.env.DEFAULT_ADMIN_PASSWORD || 'Admin@123456';
+      let adminUser = await User.findOne({ where: { email: adminEmail } });
+
+      if (!adminUser) {
+        const hashedPassword = await bcrypt.hash(adminPassword, 10);
+        adminUser = await User.create({
+          firstName: 'Super',
+          lastName: 'Admin',
+          email: adminEmail,
+          password: hashedPassword,
+          isVerified: true,
+          isAdmin: true,
+          role: 'SUPER_ADMIN',
+          provider: 'local',
+          providerId: null,
+        });
+        console.log('✅ Created Default Super Admin User:', adminEmail);
+      } else if (!adminUser.isAdmin || adminUser.role !== 'SUPER_ADMIN') {
+        adminUser.isAdmin = true;
+        adminUser.role = 'SUPER_ADMIN';
+        await adminUser.save();
+        console.log('✅ Granted Super Admin Privileges to:', adminEmail);
+      }
+
+      // 2. Clean up obsolete banner static content items (do NOT put active keys here)
+      await StaticContent.destroy({
+        where: {
+          key: [
+            'announcement_banner', 'app_rules', 'faq', 'all_leagues_info', 'page_all_leagues_subtitle',
+            'all_matches_info', 'page_all_matches_subtitle', 'all_players_info', 'player_card_info',
+            'player_stats_info', 'player_career_info', 'trophy_room_info', 'profile_page_info',
+            'rewards_info', 'reward_hat_trick_hero', 'reward_captain_leader', 'reward_assist_king',
+            'reward_goal_machine', 'reward_defensive_wall', 'reward_motm_master', 'reward_clean_sheet',
+            'reward_iron_will', 'reward_invincible_streak',
+            'page_profile_default_avatar_image', 'page_profile_skill_dribbling_image',
+            'page_profile_skill_shooting_image', 'page_profile_skill_passing_image',
+            'page_profile_skill_pace_image', 'page_profile_skill_defending_image',
+            'page_profile_skill_physical_image', 'page_profile_step1_image',
+            'page_profile_step2_image', 'page_profile_step3_image'
+          ]
+        }
+      });
+
+      // Ensure categories for general, landing, and player_stats items are updated if needed
+      await StaticContent.update(
+        { category: 'general' },
+        { where: { key: ['terms_conditions', 'privacy_policy', 'contact_details', 'game_rules', 'xp_status'] } }
+      );
+      await StaticContent.update(
+        { category: 'footer' },
+        { where: { key: ['social_media_links'] } }
+      );
+      await StaticContent.update(
+        { category: 'landing' },
+        { where: { key: ['page_landing_images', 'page_main_card1_text', 'page_main_card2_text', 'page_main_feature1_title', 'page_main_feature2_title', 'page_main_feature3_title', 'page_main_feature4_title'] } }
+      );
+      await StaticContent.update(
+        { category: 'player_stats' },
+        { where: { key: ['player_stats_heading', 'player_stats_info'] } }
+      );
+      await StaticContent.update(
+        { category: 'career' },
+        { where: { key: ['player_career_heading'] } }
+      );
+
+      // 3. Seed missing Static Content Items safely
+      for (const item of DEFAULT_ITEMS) {
+        try {
+          const existing = await StaticContent.findOne({ where: { key: item.key } });
+          if (!existing) {
+            await StaticContent.create(item);
+            console.log(`🌱 Created static content item: ${item.key}`);
+          } else {
+            let updated = false;
+            if (existing.category !== item.category) {
+              existing.category = item.category;
+              updated = true;
+            }
+            if (item.category === 'rewards' || item.key.startsWith('reward_') || (item.key === 'terms_conditions' && existing.content.length < 500)) {
+              existing.title = item.title;
+              existing.content = item.content;
+              updated = true;
+            }
+            if (updated) {
+              await existing.save();
+              console.log(`🔄 Updated static content item '${item.key}'`);
+            }
+          }
+        } catch (itemErr) {
+          // Ignore duplicate key race condition if item was inserted concurrently
+          console.warn(`Seed item '${item.key}' insert skipped or already exists.`);
+        }
+      }
+      hasSeeded = true;
+    } catch (err) {
+      console.error('StaticContent & Admin seed check failed:', err);
+    } finally {
+      seedPromise = null;
+    }
+  })();
+
+  await seedPromise;
 };
+
+/**
+ * PUBLIC API: Get all active static content (for Mobile App & Web App)
+ * GET /api/static-content
+ * GET /api/static-content/:key
+ */
+const OBSOLETE_KEYS = [
+  'announcement_banner', 'app_rules', 'faq', 'all_leagues_info', 'page_all_leagues_subtitle',
+  'all_matches_info', 'page_all_matches_subtitle', 'all_players_info', 'player_card_info',
+  'player_stats_info', 'player_career_info', 'trophy_room_info', 'profile_page_info',
+  'rewards_info', 'reward_hat_trick_hero', 'reward_captain_leader', 'reward_assist_king',
+  'reward_goal_machine', 'reward_defensive_wall', 'reward_motm_master', 'reward_clean_sheet',
+  'reward_iron_will', 'reward_invincible_streak',
+  'page_profile_default_avatar_image', 'page_profile_skill_dribbling_image',
+  'page_profile_skill_shooting_image', 'page_profile_skill_passing_image',
+  'page_profile_skill_pace_image', 'page_profile_skill_defending_image',
+  'page_profile_skill_physical_image', 'page_profile_step1_image',
+  'page_profile_step2_image', 'page_profile_step3_image',
+  'page_profile_img_dribbling', 'page_profile_img_shooting',
+  'page_profile_img_passing', 'page_profile_img_pace',
+  'page_profile_img_defending', 'page_profile_img_physical'
+];
 
 /**
  * PUBLIC API: Get all active static content (for Mobile App & Web App)
@@ -509,13 +1856,15 @@ export const ensureDefaultsExist = async () => {
  */
 export const getPublicStaticContent = async (ctx: Context) => {
   try {
-    ctx.set('Cache-Control', 'no-cache, no-store, must-revalidate');
-    await StaticContent.destroy({ where: { key: ['announcement_banner', 'app_rules', 'faq'] } });
+    ctx.set('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
+    ctx.set('Pragma', 'no-cache');
+    ctx.set('Expires', '0');
+    await StaticContent.destroy({ where: { key: OBSOLETE_KEYS } });
     await ensureDefaultsExist();
     const { key } = ctx.params;
 
     if (key) {
-      if (key === 'announcement_banner') {
+      if (OBSOLETE_KEYS.includes(key)) {
         ctx.status = 404;
         ctx.body = { success: false, message: 'Static content not found' };
         return;
@@ -536,7 +1885,7 @@ export const getPublicStaticContent = async (ctx: Context) => {
     }
 
     const items = await StaticContent.findAll({
-      where: { isActive: true, key: { [Op.ne]: 'announcement_banner' } },
+      where: { isActive: true, key: { [Op.notIn]: OBSOLETE_KEYS } },
       order: [['category', 'ASC'], ['title', 'ASC']]
     });
 
@@ -570,11 +1919,19 @@ export const getPublicStaticContent = async (ctx: Context) => {
 export const getAllStaticContentAdmin = async (ctx: Context) => {
   try {
     ctx.set('Cache-Control', 'no-cache, no-store, must-revalidate');
-    await StaticContent.destroy({ where: { key: ['announcement_banner', 'app_rules', 'faq'] } });
+    await StaticContent.destroy({ where: { key: OBSOLETE_KEYS } });
+    await StaticContent.update(
+      { category: 'footer' },
+      { where: { key: ['social_media_links'] } }
+    );
+    await StaticContent.update(
+      { category: 'landing' },
+      { where: { key: ['page_landing_images', 'page_main_card1_text', 'page_main_card2_text', 'page_main_feature1_title', 'page_main_feature2_title', 'page_main_feature3_title', 'page_main_feature4_title'] } }
+    );
     await ensureDefaultsExist();
     const items = await StaticContent.findAll({
       where: {
-        key: { [Op.notIn]: ['announcement_banner', 'app_rules', 'faq'] }
+        key: { [Op.notIn]: OBSOLETE_KEYS }
       },
       order: [['updatedAt', 'DESC']]
     });
@@ -612,6 +1969,31 @@ export const upsertStaticContentAdmin = async (ctx: Context) => {
 
     let existing = await StaticContent.findOne({ where: { key } });
 
+    const aliasGroupMap: Record<string, string[]> = {
+      'page_player_stats_label_assists': ['page_player_career_metric_assists', 'page_player_career_assists'],
+      'page_player_career_metric_assists': ['page_player_stats_label_assists', 'page_player_career_assists'],
+      'page_player_career_assists': ['page_player_career_metric_assists', 'page_player_stats_label_assists'],
+
+      'page_player_stats_label_goals': ['page_player_career_metric_goals', 'page_player_career_goals'],
+      'page_player_career_metric_goals': ['page_player_stats_label_goals', 'page_player_career_goals'],
+      'page_player_career_goals': ['page_player_career_metric_goals', 'page_player_stats_label_goals'],
+
+      'page_player_stats_label_cleansheet': ['page_player_career_metric_clean_sheets', 'page_player_career_clean_sheets'],
+      'page_player_career_metric_clean_sheets': ['page_player_stats_label_cleansheet', 'page_player_career_clean_sheets'],
+      'page_player_career_clean_sheets': ['page_player_career_metric_clean_sheets', 'page_player_stats_label_cleansheet'],
+
+      'page_player_stats_label_motm': ['page_player_career_metric_motm_votes', 'page_player_career_motm_votes'],
+      'page_player_career_metric_motm_votes': ['page_player_stats_label_motm', 'page_player_career_motm_votes'],
+      'page_player_career_motm_votes': ['page_player_career_metric_motm_votes', 'page_player_stats_label_motm'],
+
+      'page_player_stats_label_defensive': ['page_player_career_metric_defensive_impact_votes', 'page_player_career_defensive_impact_votes'],
+      'page_player_career_metric_defensive_impact_votes': ['page_player_stats_label_defensive', 'page_player_career_defensive_impact_votes'],
+      'page_player_career_defensive_impact_votes': ['page_player_career_metric_defensive_impact_votes', 'page_player_stats_label_defensive'],
+
+      'page_league_details_info': ['league_details_info'],
+      'league_details_info': ['page_league_details_info'],
+    };
+
     if (existing) {
       if (title !== undefined) existing.title = title;
       if (content !== undefined) existing.content = content;
@@ -620,6 +2002,14 @@ export const upsertStaticContentAdmin = async (ctx: Context) => {
       if (isActive !== undefined) existing.isActive = Boolean(isActive);
       existing.updatedBy = userId;
       await existing.save();
+
+      const aliases = aliasGroupMap[key];
+      if (aliases && content !== undefined) {
+        for (const ak of aliases) {
+          await StaticContent.update({ content }, { where: { key: ak } });
+        }
+      }
+
       invalidateMemoryCache('/api/static-content');
 
       ctx.body = {

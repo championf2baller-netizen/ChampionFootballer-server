@@ -87,7 +87,7 @@ app.use(cors({
     const clientUrl = process.env.CLIENT_URL?.replace(/\/$/, '') || allowedOrigins[0];
     return clientUrl;
   },
-  allowHeaders: ['Authorization', 'Content-Type', 'Accept', 'X-Requested-With'],
+  allowHeaders: ['Authorization', 'Content-Type', 'Accept', 'X-Requested-With', 'Cache-Control', 'Pragma', 'Expires', 'If-None-Match'],
   exposeHeaders: ['X-Cache'],
   credentials: true,
   allowMethods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],

@@ -175,8 +175,17 @@ router.post('/picture', required, upload.single('profilePicture'), async (ctx: C
   if (!user) ctx.throw(404, 'User not found');
   if (!ctx.file) ctx.throw(400, 'No file uploaded');
 
-  // Upload to Cloudinary and save URL
-  const imageUrl = await uploadToCloudinary(ctx.file.buffer, 'profile-pictures');
+  // Upload to Cloudinary and save URL (with fallback to base64 data URL)
+  let imageUrl = '';
+  try {
+    imageUrl = await uploadToCloudinary(ctx.file.buffer, 'profile-pictures');
+  } catch (cErr) {
+    console.warn('Cloudinary upload fallback to base64 data URL for profile picture:', cErr);
+    const mime = ctx.file.mimetype || 'image/png';
+    const b64 = ctx.file.buffer.toString('base64');
+    imageUrl = `data:${mime};base64,${b64}`;
+  }
+
   user.profilePicture = imageUrl;
   await user.save();
 
