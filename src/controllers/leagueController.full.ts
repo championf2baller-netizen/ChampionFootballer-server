@@ -391,8 +391,8 @@ const fetchUserLeaguesBasic = async (userId: string): Promise<LeagueListRow[]> =
         ON lm."leagueId" = l.id
       LEFT JOIN "LeagueAdmin" la
         ON la."leagueId" = l.id
-      WHERE lm."userId" = :userId
-         OR la."userId" = :userId
+      WHERE l.id IS NOT NULL
+        AND (lm."userId" = :userId OR la."userId" = :userId)
       ORDER BY l."createdAt" DESC
     `,
     {
