@@ -416,6 +416,56 @@ const fetchUserLeaguesBasic = async (userId: string): Promise<LeagueListRow[]> =
   }));
 };
 
+const fetchAllLeaguesAdminBasic = async (): Promise<LeagueListRow[]> => {
+  const sequelize = League.sequelize!;
+  const rows = await sequelize.query<LeagueListRow>(
+    `
+      SELECT DISTINCT
+        l.id::text AS id,
+        l.name,
+        l.active,
+        COALESCE(l.archived, false) AS archived,
+        l.image,
+        l."maxGames",
+        l."createdAt" AS "createdAt",
+        COALESCE(
+          (SELECT "userId"::text FROM "LeagueAdmin" la2 WHERE la2."leagueId" = l.id LIMIT 1),
+          (SELECT "userId"::text FROM "LeagueMember" lm_first WHERE lm_first."leagueId" = l.id ORDER BY "createdAt" ASC LIMIT 1)
+        ) AS "adminId",
+        (SELECT TRIM(COALESCE(u."firstName", '') || ' ' || COALESCE(u."lastName", '')) 
+         FROM "users" u 
+         WHERE u.id = COALESCE(
+           (SELECT "userId" FROM "LeagueAdmin" la3 WHERE la3."leagueId" = l.id LIMIT 1),
+           (SELECT "userId" FROM "LeagueMember" lm4 WHERE lm4."leagueId" = l.id ORDER BY "createdAt" ASC LIMIT 1)
+         ) LIMIT 1) AS "adminName",
+        (SELECT COUNT(*)::int FROM "LeagueMember" lm2 JOIN "users" u_count ON lm2."userId" = u_count.id WHERE lm2."leagueId" = l.id AND COALESCE(u_count.email, '') NOT ILIKE '%guest%' AND COALESCE(u_count.email, '') NOT ILIKE '%@local.invalid%' AND COALESCE(u_count.provider, '') != 'guest') AS "memberCount",
+        (SELECT COUNT(*)::int FROM "Matches" m WHERE m."leagueId" = l.id) AS "totalMatchCount"
+      FROM "Leagues" l
+      WHERE l.id IS NOT NULL
+      ORDER BY l."createdAt" DESC
+    `,
+
+    {
+      type: QueryTypes.SELECT,
+    }
+  );
+
+  return rows.map((row) => ({
+    id: String(row.id),
+    name: row.name,
+    active: Boolean(row.active),
+    archived: Boolean(row.archived),
+    image: row.image || null,
+    maxGames: row.maxGames == null ? null : Number(row.maxGames),
+    createdAt: row.createdAt ? ((row.createdAt as any) instanceof Date ? (row.createdAt as any).toISOString() : String(row.createdAt)) : undefined,
+    adminId: row.adminId || null,
+    adminName: row.adminName || null,
+    memberCount: row.memberCount ? Number(row.memberCount) : 0,
+    totalMatchCount: row.totalMatchCount ? Number(row.totalMatchCount) : 0,
+  }));
+};
+
+
 
 const deriveLeagueLifecycle = (
   active: boolean,
@@ -549,7 +599,13 @@ export const getAllLeagues = async (ctx: Context) => {
   }
   const userId = String(ctx.state.user.userId);
   try {
-    const leaguesBasic = await fetchUserLeaguesBasic(userId);
+    const user = await User.findByPk(userId);
+    const isSuperAdmin = Boolean(user?.isAdmin || user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN');
+
+    const leaguesBasic = isSuperAdmin 
+      ? await fetchAllLeaguesAdminBasic()
+      : await fetchUserLeaguesBasic(userId);
+
     const completionByLeague = await checkLeagueCompletionBulk(leaguesBasic.map((league) => league.id));
 
     const leagues = leaguesBasic.map((league) => {
@@ -1426,14 +1482,21 @@ export const getLeagueMatches = async (ctx: Context) => {
       return;
     }
 
+    const user = await User.findByPk(userId);
+    const isSuperAdmin = Boolean(user?.isAdmin || user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN');
+
     const isMember = (league as any).members?.some((m: any) => String(m.id) === userId);
-    const isAdmin = (league as any).administeredLeagues?.some((a: any) => String(a.id) === userId);
+    const isLeagueAdmin = (league as any).administeredLeagues?.some((a: any) => String(a.id) === userId);
+    const isAdmin = isLeagueAdmin || isSuperAdmin;
 
     if (!isMember && !isAdmin) {
       ctx.status = 403;
       ctx.body = { success: false, message: 'Access denied' };
       return;
     }
+
+
+
 
     const seasons = (league as any).seasons || [];
     const validSeasonIds = new Set<string>(seasons.map((s: any) => String(s.id)));
@@ -1456,10 +1519,14 @@ export const getLeagueMatches = async (ctx: Context) => {
       return;
     }
 
-    const whereClause: Record<string, unknown> = { leagueId: id, deleted: false };
-    if (!includeArchived) {
-      whereClause.archived = false;
+    const whereClause: Record<string, unknown> = { leagueId: id };
+    if (!isSuperAdmin) {
+      whereClause.deleted = false;
+      if (!includeArchived) {
+        whereClause.archived = false;
+      }
     }
+
 
     if (requestedSeasonId) {
       whereClause.seasonId = requestedSeasonId;
@@ -4838,11 +4905,14 @@ export const updateMatchInLeague = async (ctx: Context) => {
     }
 
     // Check admin permission
-    const isAdmin = (match as any).league?.administeredLeagues?.some((a: any) => String(a.id) === String(currentUserId));
+    const user = await User.findByPk(currentUserId);
+    const isSuperAdmin = Boolean(user?.isAdmin || user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN');
+    const isAdmin = isSuperAdmin || (match as any).league?.administeredLeagues?.some((a: any) => String(a.id) === String(currentUserId));
     if (!isAdmin) {
       ctx.throw(403, 'Only league admins can update matches');
       return;
     }
+
 
     // If notifyOnly is set, just notify players but don't save teams
     if (notifyOnly === 'true') {

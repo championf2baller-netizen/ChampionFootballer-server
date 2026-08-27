@@ -418,92 +418,8 @@ export async function calculateAndAwardXPAchievements(userId: string, leagueId?:
   console.log(
     `[XP Sync] user=${userId} playedMatches=${playedMatchIds.length} leagues=${leagueIds.length} durationMs=${Date.now() - startedAt}`
   );
-
-  // --- XP Awarding Logic for Completed Match ---
-  if (leagueId) {
-    // Find all completed matches for this user in this league
-    const matches = await Match.findAll({
-      where: { leagueId, status: 'RESULT_PUBLISHED' },
-      include: [
-        { model: User, as: 'homeTeamUsers' },
-        { model: User, as: 'awayTeamUsers' },
-        { model: Vote, as: 'votes' },
-      ]
-    });
-    // Find the most recent completed match (the one just completed)
-    const match = matches[matches.length - 1];
-    if (!match) return;
-    // Get all users in this match
-    const homeTeamUsers = ((match as any).homeTeamUsers || []);
-    const awayTeamUsers = ((match as any).awayTeamUsers || []);
-    const allPlayers = [...homeTeamUsers, ...awayTeamUsers];
-    // Get all stats for this match
-    const stats = await MatchStatistics.findAll({ where: { match_id: match.id } });
-    // Get all votes for this match
-    const votes = await Vote.findAll({ where: { matchId: match.id } });
-    // Determine MOTM (most votes)
-    const voteCounts: Record<string, number> = {};
-    votes.forEach(vote => {
-      const id = String(vote.votedForId);
-      voteCounts[id] = (voteCounts[id] || 0) + 1;
-    });
-    let motmId: string | null = null;
-    let maxVotes = 0;
-    Object.entries(voteCounts).forEach(([id, count]) => {
-      if (count > maxVotes) {
-        motmId = id;
-        maxVotes = count;
-      }
-    });
-    // Award XP for each player
-    for (const player of allPlayers) {
-      let xp = 0;
-      const stat = stats.find(s => s.user_id === player.id);
-      const isHome = homeTeamUsers.some((u: any) => u.id === player.id);
-      const isAway = awayTeamUsers.some((u: any) => u.id === player.id);
-      const homeGoals = match.homeTeamGoals ?? 0;
-      const awayGoals = match.awayTeamGoals ?? 0;
-      // Win/Draw/Loss
-      let teamResult: 'win' | 'draw' | 'lose' = 'lose';
-      if (isHome && homeGoals > awayGoals) teamResult = 'win';
-      else if (isAway && awayGoals > homeGoals) teamResult = 'win';
-      else if (homeGoals === awayGoals) teamResult = 'draw';
-      if (teamResult === 'win') xp += xpPointsTable.winningTeam;
-      else if (teamResult === 'draw') xp += xpPointsTable.draw;
-      else xp += xpPointsTable.losingTeam;
-      // Goals
-      if (stat && stat.goals) xp += (teamResult === 'win' ? xpPointsTable.goal.win : xpPointsTable.goal.lose) * stat.goals;
-      // Assists
-      if (stat && stat.assists) xp += (teamResult === 'win' ? xpPointsTable.assist.win : xpPointsTable.assist.lose) * stat.assists;
-      // Clean Sheets (Goalkeeper)
-      if (stat && stat.cleanSheets) xp += xpPointsTable.cleanSheet * stat.cleanSheets;
-      // MOTM Winner bonus removed - only individual votes count
-      // MOTM Votes
-      if (voteCounts[player.id]) xp += (teamResult === 'win' ? xpPointsTable.motmVote.win : xpPointsTable.motmVote.lose) * voteCounts[player.id];
-      
-      // Defensive Impact (Captain Pick)
-      if (match.homeDefensiveImpactId === player.id || match.awayDefensiveImpactId === player.id) {
-        xp += (teamResult === 'win' ? xpPointsTable.defensiveImpact.win : xpPointsTable.defensiveImpact.lose);
-        console.log(`🛡️  Defensive Impact XP: User ${player.id} gets ${teamResult === 'win' ? xpPointsTable.defensiveImpact.win : xpPointsTable.defensiveImpact.lose} XP`);
-      }
-      
-      // Mentality (Captain Pick)
-      if (match.homeMentalityId === player.id || match.awayMentalityId === player.id) {
-        xp += (teamResult === 'win' ? xpPointsTable.mentality.win : xpPointsTable.mentality.lose);
-        console.log(`🧠 Mentality XP: User ${player.id} gets ${teamResult === 'win' ? xpPointsTable.mentality.win : xpPointsTable.mentality.lose} XP`);
-      }
-      
-      // TODO: Streak Bonuses (if you have logic to determine streaks, add here)
-      // Award XP
-      const user = await User.findByPk(player.id);
-      if (user) {
-        user.xp = (user.xp || 0) + xp;
-        await user.save();
-        console.log(`💰 XP REWARD! User ${user.id}: +${xp} XP for match ${match.id}`);
-      }
-    }
-  }
 }
+
 
 export async function awardXPAchievement(userId: string, achievementId: string) {
   const achievement = xpAchievements.find(a => a.id === achievementId);
@@ -607,8 +523,14 @@ export async function awardXPForMatch(matchId: string) {
     });
   }
 
-  // Get all votes for this match
-  const votes = await Vote.findAll({ where: { matchId: matchId } });
+  // Get MOTM votes for this match (excluding captain pick categories)
+  const votes = await Vote.findAll({
+    where: {
+      matchId: matchId,
+      [Op.or]: [{ category: null }, { category: 'motm' }]
+    }
+  });
+
   
   // Determine MOTM (most votes)
   const voteCounts: Record<string, number> = {};
@@ -715,15 +637,8 @@ export async function awardXPForMatch(matchId: string) {
       console.log(`   🧤 Adding ${cleanSheetXP} XP for ${cleanSheets} clean sheets`);
     }
 
-    // Impact/Defence - use statValues
-    const defence = statValues?.defence || 0;
-    if (defence > 0) {
-      const defenceXP = (teamResult === 'win' ? xpPointsTable.defensiveImpact.win : xpPointsTable.defensiveImpact.lose) * defence;
-      xp += defenceXP;
-      xpBreakdown.push(`Defence Impact (${defence}): +${defenceXP}`);
-    }
-
     // MOTM Winner bonus removed - only individual votes count
+
 
     // MOTM Votes received
     if (voteCounts[player.id]) {
@@ -746,6 +661,18 @@ export async function awardXPForMatch(matchId: string) {
       xpBreakdown.push(`Captain Pick - Mentality: +${mentalityXP}`);
     }
 
+    // Check previously awarded XP from match_statistics to calculate delta
+    let prevAwarded = 0;
+    try {
+      const prevResult = await sequelize.query<any>(
+        `SELECT xp_awarded FROM match_statistics WHERE match_id = :matchId AND user_id = :userId`,
+        { replacements: { matchId, userId: player.id }, type: QueryTypes.SELECT }
+      );
+      prevAwarded = Number(prevResult[0]?.xp_awarded) || 0;
+    } catch {}
+
+    const delta = xp - prevAwarded;
+
     // Update match_statistics with xp_awarded using raw SQL (snake_case table name)
     if (stat) {
       try {
@@ -759,40 +686,32 @@ export async function awardXPForMatch(matchId: string) {
       }
     }
 
-    // Update User's total XP - Use RAW SQL to ensure it saves
-    try {
-      // Get current XP
-      const userResult = await sequelize.query<any>(
-        `SELECT id, "firstName", xp FROM users WHERE id = :userId`,
-        { replacements: { userId: player.id }, type: QueryTypes.SELECT }
-      );
-      
-      if (userResult.length > 0) {
-        const oldXP = userResult[0].xp || 0;
-        const newXP = oldXP + xp;
-        
-        // Update XP using raw SQL
-        await sequelize.query(
-          `UPDATE users SET xp = :newXP WHERE id = :userId`,
-          { replacements: { newXP, userId: player.id } }
-        );
-        
-        console.log(`💰 XP AWARDED! User ${player.id} (${userResult[0].firstName || 'Unknown'}): +${xp} XP`);
-        console.log(`   Breakdown: ${xpBreakdown.join(', ')}`);
-        console.log(`   Total XP: ${oldXP} → ${newXP}`);
-        
-        // Verify the update
-        const verifyResult = await sequelize.query<any>(
-          `SELECT xp FROM users WHERE id = :userId`,
+    // Update User's total XP with delta (only add/subtract the difference)
+    if (delta !== 0) {
+      try {
+        const userResult = await sequelize.query<any>(
+          `SELECT id, "firstName", xp FROM users WHERE id = :userId`,
           { replacements: { userId: player.id }, type: QueryTypes.SELECT }
         );
-        console.log(`   ✅ Verified DB XP: ${verifyResult[0]?.xp}`);
-      } else {
-        console.log(`   ⚠️ User ${player.id} not found in database!`);
+        
+        if (userResult.length > 0) {
+          const oldXP = Number(userResult[0].xp) || 0;
+          const newXP = Math.max(0, oldXP + delta);
+          
+          await sequelize.query(
+            `UPDATE users SET xp = :newXP WHERE id = :userId`,
+            { replacements: { newXP, userId: player.id } }
+          );
+          
+          console.log(`💰 XP ADJUSTED WITH DELTA! User ${player.id} (${userResult[0].firstName || 'Unknown'}): delta ${delta > 0 ? '+' : ''}${delta} XP (New Total Awarded: ${xp})`);
+          console.log(`   Breakdown: ${xpBreakdown.join(', ')}`);
+          console.log(`   Total XP: ${oldXP} → ${newXP}`);
+        }
+      } catch (userErr) {
+        console.error(`   ❌ Failed to update User XP:`, userErr);
       }
-    } catch (userErr) {
-      console.error(`   ❌ Failed to update User XP:`, userErr);
     }
+
   }
 
   console.log(`✅ Completed XP awards for match ${matchId}`);
@@ -874,27 +793,25 @@ export async function awardXPForPlayer(userId: string, matchId: string, statReco
     xpBreakdown.push(`Clean Sheets (${cleanSheets}): +${cleanSheetXP}`);
   }
 
-  // Defence XP
-  const defence = statRecord.defence || 0;
-  if (defence > 0) {
-    const defenceXP = (teamResult === 'win' ? xpPointsTable.defensiveImpact.win : xpPointsTable.defensiveImpact.lose) * defence;
-    xp += defenceXP;
-    xpBreakdown.push(`Defence (${defence}): +${defenceXP}`);
-  }
-
   // Update MatchStatistics with xpAwarded
+  const prevAwarded = Number(statRecord.xpAwarded) || 0;
+  const delta = xp - prevAwarded;
+
   await statRecord.update({ xpAwarded: xp });
 
-  // Update User's total XP
-  const user = await User.findByPk(userId);
-  if (user) {
-    const oldXP = user.xp || 0;
-    user.xp = oldXP + xp;
-    await user.save();
-    console.log(`💰 XP AWARDED! User ${userId}: +${xp} XP`);
-    console.log(`   Breakdown: ${xpBreakdown.join(', ')}`);
-    console.log(`   Total XP: ${oldXP} → ${user.xp}`);
+  // Update User's total XP with delta
+  if (delta !== 0) {
+    const user = await User.findByPk(userId);
+    if (user) {
+      const oldXP = user.xp || 0;
+      user.xp = Math.max(0, oldXP + delta);
+      await user.save();
+      console.log(`💰 XP ADJUSTED WITH DELTA! User ${userId}: delta ${delta > 0 ? '+' : ''}${delta} XP (New Total Awarded: ${xp})`);
+      console.log(`   Breakdown: ${xpBreakdown.join(', ')}`);
+      console.log(`   Total XP: ${oldXP} → ${user.xp}`);
+    }
   }
+
 
   return xp;
 }

@@ -690,9 +690,10 @@ async function recalculateMatchXPForCurrentState(matchId: string, ensureUserIds:
   if (!statsRows.length) return;
 
   const votes = await sequelize.query<{ votedForId: string }>(
-    `SELECT "votedForId" FROM "Votes" WHERE "matchId" = $1`,
+    `SELECT "votedForId" FROM "Votes" WHERE "matchId" = $1 AND (category IS NULL OR category = 'motm')`,
     { bind: [matchId], type: QueryTypes.SELECT }
   );
+
 
   const voteCountByPlayer: Record<string, number> = {};
   for (const v of votes) {
@@ -1707,9 +1708,9 @@ export const submitMatchStats = async (ctx: Context) => {
 
         // � MOTM (Man of the Match) XP - Check votes received by this user
         try {
-          // Get all votes for this match where this user was voted for
+          // Get all votes for this match where this user was voted for (MOTM votes only)
           const votesResult = await sequelize.query(
-            `SELECT COUNT(DISTINCT "voterId") as vote_count FROM "Votes" WHERE "matchId" = $1 AND "votedForId" = $2`,
+            `SELECT COUNT(DISTINCT "voterId") as vote_count FROM "Votes" WHERE "matchId" = $1 AND "votedForId" = $2 AND (category IS NULL OR category = 'motm')`,
             { bind: [matchId, userId], type: QueryTypes.SELECT }
           );
 
@@ -1726,12 +1727,13 @@ export const submitMatchStats = async (ctx: Context) => {
             const mostVotesResult = await sequelize.query(
               `SELECT "votedForId", COUNT(DISTINCT "voterId") as vote_count 
                FROM "Votes" 
-               WHERE "matchId" = $1 
+               WHERE "matchId" = $1 AND (category IS NULL OR category = 'motm')
                GROUP BY "votedForId" 
                ORDER BY vote_count DESC 
                LIMIT 1`,
               { bind: [matchId], type: QueryTypes.SELECT }
             );
+
 
             const top = (mostVotesResult[0] as any) || null;
             const topVotedForId = top?.votedForId ? String(top.votedForId) : '';
@@ -3095,7 +3097,7 @@ export const getMatchXPBreakdown = async (ctx: Context) => {
       FROM "Votes" v
       JOIN users voter ON v."voterId" = voter.id
       JOIN users voted ON v."votedForId" = voted.id
-      WHERE v."matchId" = :matchId
+      WHERE v."matchId" = :matchId AND (v.category IS NULL OR v.category = 'motm')
     `, {
       replacements: { matchId },
       type: QueryTypes.SELECT

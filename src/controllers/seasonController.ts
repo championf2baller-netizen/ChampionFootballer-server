@@ -155,6 +155,9 @@ export const getAllSeasons = async (ctx: Context) => {
   const { leagueId } = ctx.params;
   const userId = ctx.state.user?.userId;
 
+  const user = userId ? await User.findByPk(userId) : null;
+  const isSuperAdmin = Boolean(user?.isAdmin || user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN');
+
   // Check if user is admin of this league
   const league = await League.findByPk(leagueId, {
     include: [
@@ -171,11 +174,18 @@ export const getAllSeasons = async (ctx: Context) => {
     return;
   }
 
-  const isAdmin = (league as any).administeredLeagues?.some((admin: any) => String(admin.id) === String(userId));
+  const isAdmin = isSuperAdmin || (league as any).administeredLeagues?.some((admin: any) => String(admin.id) === String(userId));
+
+
+  const seasonWhere: Record<string, any> = { leagueId };
+  if (!isSuperAdmin) {
+    seasonWhere.deleted = false;
+  }
 
   const seasons = await Season.findAll({
-    where: { leagueId, deleted: false },
+    where: seasonWhere,
     order: [['seasonNumber', 'DESC']],
+
     include: [
       {
         model: User,
@@ -201,13 +211,15 @@ export const getAllSeasons = async (ctx: Context) => {
         status: getSeasonStatus(season),
         startDate: season.startDate,
         endDate: season.endDate,
-        maxGames: season.maxGames,
+        maxGames: season.maxGames || (league as any).maxGames || null,
         showPoints: season.showPoints,
+        players: players,
         playerCount: players.length,
         createdAt: season.createdAt,
         isMember: isPlayerInSeason
       };
     });
+
 
     ctx.body = {
       success: true,
