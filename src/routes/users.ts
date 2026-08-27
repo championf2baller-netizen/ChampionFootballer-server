@@ -376,7 +376,7 @@ router.get('/me/achievements', required, async (ctx) => {
       playedMatchIds.length > 0
         ? Vote.findAll({
             where: { matchId: { [Op.in]: playedMatchIds as any } },
-            attributes: ['matchId', 'votedForId'],
+            attributes: ['matchId', 'votedForId', 'category'],
             raw: true,
           })
         : Promise.resolve([]),
@@ -403,13 +403,14 @@ router.get('/me/achievements', required, async (ctx) => {
       totalMatchesByLeague[key] = Number(row.totalMatches || 0);
     }
 
-    const votesByMatch = new Map<string, string[]>();
+    const votesByMatch = new Map<string, Array<{ votedForId: string; category?: string }>>();
     for (const row of voteRows as any[]) {
       const matchId = String(row.matchId || '').trim();
       const votedForId = String(row.votedForId || '').trim();
+      const category = String(row.category || '').trim();
       if (!matchId || !votedForId) continue;
       if (!votesByMatch.has(matchId)) votesByMatch.set(matchId, []);
-      votesByMatch.get(matchId)!.push(votedForId);
+      votesByMatch.get(matchId)!.push({ votedForId, category });
     }
 
     const homeMatchIdSet = new Set((homeRows as any[]).map((r: any) => String(r.matchId || '')).filter((id: string) => id !== ''));
@@ -417,7 +418,7 @@ router.get('/me/achievements', required, async (ctx) => {
 
     const achievementMatches = playedMatches.map((m: any) => {
       const matchId = String(m.id || '');
-      const votedForIds = votesByMatch.get(matchId) || [];
+      const votedForObjects = votesByMatch.get(matchId) || [];
 
       const isHomeInJoin = homeMatchIdSet.has(matchId);
       const isAwayInJoin = awayMatchIdSet.has(matchId);
@@ -431,9 +432,10 @@ router.get('/me/achievements', required, async (ctx) => {
         ...m,
         homeTeamUsers: isHome ? [{ id: userId }] : [],
         awayTeamUsers: isAway ? [{ id: userId }] : [],
-        votes: votedForIds.map((votedForId) => ({ votedForId })),
+        votes: votedForObjects,
       });
     });
+
     const computed = computeAchievementState(userId, achievementMatches, statsByMatch, {
       totalMatchesByLeague,
     });

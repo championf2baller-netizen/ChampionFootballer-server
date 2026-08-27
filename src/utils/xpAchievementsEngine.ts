@@ -173,6 +173,7 @@ export async function calculateAndAwardXPAchievements(userId: string, leagueId?:
   console.log(`Starting XP achievement sync for user ${userId}${leagueId ? ` in league ${leagueId}` : ''}`);
 
   const user = await User.findByPk(userId);
+
   if (!user || isGuestUserRecord(user)) {
     console.log(`User ${userId} not found or is guest player for achievement sync`);
     return;
@@ -289,7 +290,7 @@ export async function calculateAndAwardXPAchievements(userId: string, leagueId?:
     playedMatchIds.length > 0
       ? Vote.findAll({
           where: { matchId: { [Op.in]: playedMatchIds as any } },
-          attributes: ['matchId', 'votedForId'],
+          attributes: ['matchId', 'votedForId', 'category'],
           raw: true,
         })
       : Promise.resolve([]),
@@ -311,7 +312,7 @@ export async function calculateAndAwardXPAchievements(userId: string, leagueId?:
 
   const homeUsersByMatch = new Map<string, Set<string>>();
   const awayUsersByMatch = new Map<string, Set<string>>();
-  const votesByMatch = new Map<string, string[]>();
+  const votesByMatch = new Map<string, Array<{ votedForId: string; category?: string }>>();
 
   for (const row of homeTeamRows as any[]) {
     const matchId = String(row.matchId || '').trim();
@@ -330,9 +331,10 @@ export async function calculateAndAwardXPAchievements(userId: string, leagueId?:
   for (const row of voteRows as any[]) {
     const matchId = String(row.matchId || '').trim();
     const votedForId = String(row.votedForId || '').trim();
+    const category = String(row.category || '').trim();
     if (!matchId || !votedForId) continue;
     if (!votesByMatch.has(matchId)) votesByMatch.set(matchId, []);
-    votesByMatch.get(matchId)!.push(votedForId);
+    votesByMatch.get(matchId)!.push({ votedForId, category });
   }
 
   const statsByMatch = new Map<string, { goals: number; assists: number }>();
@@ -347,7 +349,7 @@ export async function calculateAndAwardXPAchievements(userId: string, leagueId?:
     const matchId = String(m.id || '');
     const homeIds = Array.from(homeUsersByMatch.get(matchId) || []);
     const awayIds = Array.from(awayUsersByMatch.get(matchId) || []);
-    const votedForIds = votesByMatch.get(matchId) || [];
+    const votedForObjects = votesByMatch.get(matchId) || [];
 
     const sameId = (a: unknown, b: unknown): boolean => {
       if (!a || !b) return false;
@@ -371,9 +373,10 @@ export async function calculateAndAwardXPAchievements(userId: string, leagueId?:
       ...m,
       homeTeamUsers: finalHomeIds.map((id) => ({ id })),
       awayTeamUsers: finalAwayIds.map((id) => ({ id })),
-      votes: votedForIds.map((votedForId) => ({ votedForId })),
+      votes: votedForObjects,
     });
   });
+
 
   const computed = computeAchievementState(userId, achievementMatches, statsByMatch, {
     totalMatchesByLeague,
@@ -815,4 +818,7 @@ export async function awardXPForPlayer(userId: string, matchId: string, statReco
 
   return xp;
 }
+
+export const recalculateUserAchievements = calculateAndAwardXPAchievements;
+
 

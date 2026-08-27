@@ -21,6 +21,8 @@ export interface AchievementMatchInput {
   homeTeamUserIds: string[];
   awayTeamUserIds: string[];
   votePlayerIds: string[];
+  defenceVotedUserIds?: string[];
+  influenceVotedUserIds?: string[];
   homeCaptainId?: string | null;
   awayCaptainId?: string | null;
   homeDefensiveImpactId?: string | null;
@@ -178,9 +180,20 @@ export const toAchievementMatchInput = (match: any): AchievementMatchInput => {
     if (!Array.isArray(rows)) return [];
     return rows.map((row) => normalizeId((row as { id?: unknown })?.id)).filter((id) => id !== '');
   };
-  const votes = Array.isArray(match?.votes)
-    ? match.votes.map((v: any) => normalizeId(v?.votedForId)).filter((id: string) => id !== '')
-    : [];
+  const rawVotes = Array.isArray(match?.votes) ? match.votes : [];
+  const motmVotes = rawVotes
+    .filter((v: any) => !v.category || v.category === 'motm')
+    .map((v: any) => normalizeId(v?.votedForId ?? v))
+    .filter((id: string) => id !== '');
+  const defenceVotes = rawVotes
+    .filter((v: any) => v.category === 'defence' || v.category === 'defensive')
+    .map((v: any) => normalizeId(v?.votedForId ?? v))
+    .filter((id: string) => id !== '');
+  const influenceVotes = rawVotes
+    .filter((v: any) => v.category === 'influence' || v.category === 'mentality')
+    .map((v: any) => normalizeId(v?.votedForId ?? v))
+    .filter((id: string) => id !== '');
+
   const timeValue = match?.date ?? match?.start ?? match?.createdAt ?? match?.updatedAt ?? match?.end ?? 0;
   const ms = new Date(timeValue).getTime();
 
@@ -191,7 +204,9 @@ export const toAchievementMatchInput = (match: any): AchievementMatchInput => {
     awayTeamGoals: toNumber(match?.awayTeamGoals),
     homeTeamUserIds: toIdArray(match?.homeTeamUsers),
     awayTeamUserIds: toIdArray(match?.awayTeamUsers),
-    votePlayerIds: votes,
+    votePlayerIds: motmVotes,
+    defenceVotedUserIds: defenceVotes,
+    influenceVotedUserIds: influenceVotes,
     homeCaptainId: normalizeId(match?.homeCaptainId) || null,
     awayCaptainId: normalizeId(match?.awayCaptainId) || null,
     homeDefensiveImpactId: normalizeId(match?.homeDefensiveImpactId) || null,
@@ -238,10 +253,13 @@ export const computeAchievementState = (
       result === 'W' &&
       (sameComparableId(match.homeCaptainId, normalizedUserId) || sameComparableId(match.awayCaptainId, normalizedUserId));
     const hasXFactorPick =
+      (match.defenceVotedUserIds || []).some((id) => sameComparableId(id, normalizedUserId)) ||
+      (match.influenceVotedUserIds || []).some((id) => sameComparableId(id, normalizedUserId)) ||
       sameComparableId(match.homeDefensiveImpactId, normalizedUserId) ||
       sameComparableId(match.awayDefensiveImpactId, normalizedUserId) ||
       sameComparableId(match.homeMentalityId, normalizedUserId) ||
       sameComparableId(match.awayMentalityId, normalizedUserId);
+
     const motmWinnerId = getTopMotmWinner(match.votePlayerIds);
     const wonMotmAward = sameComparableId(motmWinnerId, normalizedUserId);
 

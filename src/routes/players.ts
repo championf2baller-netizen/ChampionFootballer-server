@@ -1406,14 +1406,14 @@ router.get('/:id/achievements', required, async (ctx) => {
         ),
         Vote.findAll({
           where: { matchId: { [Op.in]: processMatchIds as any } },
-          attributes: ['matchId', 'votedForId'],
+          attributes: ['matchId', 'votedForId', 'category'],
           raw: true,
         }),
       ]);
 
       const homeByMatch = new Map<string, Array<{ id: string }>>();
       const awayByMatch = new Map<string, Array<{ id: string }>>();
-      const votesByMatch = new Map<string, Array<{ votedForId: string }>>();
+      const votesByMatch = new Map<string, Array<{ votedForId: string; category?: string }>>();
 
       (homeRows as any[]).forEach((row) => {
         const matchId = String(row.matchId);
@@ -1428,8 +1428,9 @@ router.get('/:id/achievements', required, async (ctx) => {
       (voteRows as any[]).forEach((row) => {
         const matchId = String(row.matchId);
         if (!votesByMatch.has(matchId)) votesByMatch.set(matchId, []);
-        votesByMatch.get(matchId)!.push({ votedForId: String(row.votedForId) });
+        votesByMatch.get(matchId)!.push({ votedForId: String(row.votedForId), category: String(row.category || '') });
       });
+
 
       processedMatches = matchesToProcess.map((match: any) => {
         const matchId = String(match.id);
