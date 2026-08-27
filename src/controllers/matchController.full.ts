@@ -631,26 +631,16 @@ async function recalculateMatchXPForCurrentState(matchId: string, ensureUserIds:
     });
   }
 
+  // Ensure match_statistics records exist for all match participants & voted players
   for (const uid of participantIds) {
-    await MatchStatistics.findOrCreate({
-      where: { match_id: matchId, user_id: uid },
-      defaults: {
-        match_id: matchId,
-        user_id: uid,
-        goals: 0,
-        assists: 0,
-        cleanSheets: 0,
-        penalties: 0,
-        freeKicks: 0,
-        yellowCards: 0,
-        redCards: 0,
-        defence: 0,
-        impact: 0,
-        minutesPlayed: 0,
-        rating: 0,
-        xpAwarded: 0
-      }
-    });
+    try {
+      await sequelize.query(
+        `INSERT INTO match_statistics (id, match_id, user_id, goals, assists, "cleanSheets", penalties, "freeKicks", "yellowCards", "redCards", defence, impact, "minutesPlayed", rating, xp_awarded, "createdAt", "updatedAt")
+         VALUES (gen_random_uuid(), :matchId, :userId, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, NOW(), NOW())
+         ON CONFLICT (match_id, user_id) DO NOTHING`,
+        { replacements: { matchId, userId: uid } }
+      );
+    } catch {}
   }
 
   const match = await Match.findByPk(matchId, {
@@ -694,12 +684,16 @@ async function recalculateMatchXPForCurrentState(matchId: string, ensureUserIds:
     { bind: [matchId], type: QueryTypes.SELECT }
   );
 
-
   const voteCountByPlayer: Record<string, number> = {};
   for (const v of votes) {
     const vid = String(v.votedForId || '').trim();
     if (!vid) continue;
-    voteCountByPlayer[vid] = (voteCountByPlayer[vid] || 0) + 1;
+    try {
+      const resolvedVid = await resolveTargetUserIdForMatch(vid, matchId);
+      voteCountByPlayer[resolvedVid] = (voteCountByPlayer[resolvedVid] || 0) + 1;
+    } catch {
+      voteCountByPlayer[vid] = (voteCountByPlayer[vid] || 0) + 1;
+    }
   }
 
   // Same tie-break behavior everywhere: highest votes, then lexical user id.
@@ -709,10 +703,61 @@ async function recalculateMatchXPForCurrentState(matchId: string, ensureUserIds:
   });
   const motmWinnerId = motmSorted.length > 0 && motmSorted[0][1] > 0 ? String(motmSorted[0][0]) : null;
 
-  const homeDefensiveId = String((match as any).homeDefensiveImpactId || '');
-  const awayDefensiveId = String((match as any).awayDefensiveImpactId || '');
-  const homeMentalityId = String((match as any).homeMentalityId || '');
-  const awayMentalityId = String((match as any).awayMentalityId || '');
+  // Defensive Impact votes from Votes table
+  const defenceVotes = await sequelize.query<{ votedForId: string }>(
+    `SELECT "votedForId" FROM "Votes" WHERE "matchId" = $1 AND category = 'defence'`,
+    { bind: [matchId], type: QueryTypes.SELECT }
+  );
+  const defenceVotedSet = new Set<string>();
+  for (const v of defenceVotes) {
+    if (v.votedForId) {
+      const vid = String(v.votedForId).trim();
+      defenceVotedSet.add(vid);
+      try {
+        const resolvedVid = await resolveTargetUserIdForMatch(vid, matchId);
+        if (resolvedVid) defenceVotedSet.add(resolvedVid);
+      } catch {}
+    }
+  }
+
+  // Also include team-level captain picks from Match record as fallback
+  const addPickToSet = async (id: string | null | undefined, targetSet: Set<string>) => {
+    const raw = String(id || '').trim();
+    if (!raw) return;
+    targetSet.add(raw);
+    try {
+      const resolved = await resolveTargetUserIdForMatch(raw, matchId);
+      if (resolved) targetSet.add(resolved);
+    } catch {}
+  };
+
+  if (defenceVotedSet.size === 0) {
+    await addPickToSet((match as any).homeDefensiveImpactId, defenceVotedSet);
+    await addPickToSet((match as any).awayDefensiveImpactId, defenceVotedSet);
+  }
+
+  // Mentality / Influence votes from Votes table
+  const influenceVotes = await sequelize.query<{ votedForId: string }>(
+    `SELECT "votedForId" FROM "Votes" WHERE "matchId" = $1 AND (category = 'influence' OR category = 'mentality')`,
+    { bind: [matchId], type: QueryTypes.SELECT }
+  );
+  const influenceVotedSet = new Set<string>();
+  for (const v of influenceVotes) {
+    if (v.votedForId) {
+      const vid = String(v.votedForId).trim();
+      influenceVotedSet.add(vid);
+      try {
+        const resolvedVid = await resolveTargetUserIdForMatch(vid, matchId);
+        if (resolvedVid) influenceVotedSet.add(resolvedVid);
+      } catch {}
+    }
+  }
+
+  if (influenceVotedSet.size === 0) {
+    await addPickToSet((match as any).homeMentalityId, influenceVotedSet);
+    await addPickToSet((match as any).awayMentalityId, influenceVotedSet);
+  }
+
 
   const tx = await sequelize.transaction();
   try {
@@ -741,15 +786,17 @@ async function recalculateMatchXPForCurrentState(matchId: string, ensureUserIds:
         nextAwarded += teamResult === 'win' ? xpPointsTable.motm.win : xpPointsTable.motm.lose;
       }
 
-      const isDefensivePick = userId === homeDefensiveId || userId === awayDefensiveId;
+      const isDefensivePick = defenceVotedSet.has(userId);
       if (isDefensivePick) {
         nextAwarded += teamResult === 'win' ? xpPointsTable.defensiveImpact.win : xpPointsTable.defensiveImpact.lose;
       }
 
-      const isMentalityPick = userId === homeMentalityId || userId === awayMentalityId;
+      const isMentalityPick = influenceVotedSet.has(userId);
       if (isMentalityPick) {
         nextAwarded += teamResult === 'win' ? xpPointsTable.mentality.win : xpPointsTable.mentality.lose;
       }
+
+
 
       nextAwarded = Math.max(0, Math.round(nextAwarded));
       if (nextAwarded === prevAwarded) continue;
@@ -824,56 +871,15 @@ export const voteForMotm = async (ctx: Context) => {
     }
   }
 
-  // Get old vote to subtract XP from previous voted player
+  // Get old vote to calculate XP delta for previous voted player
   const oldVote = await Vote.findOne({ where: { matchId, voterId, category: { [Op.or]: ['motm', null] } } });
-  const oldVotedForId = oldVote?.votedForId;
+  const oldVotedForId = oldVote?.votedForId ? String(oldVote.votedForId) : null;
 
   if (!votedForId) {
-    // Removing vote - subtract XP from previously voted player
-    if (oldVotedForId) {
-      try {
-        const match = await Match.findByPk(matchId);
-        if (match) {
-          const homeGoals = match.homeTeamGoals ?? 0;
-          const awayGoals = match.awayTeamGoals ?? 0;
-          const teamResult = await getTeamResultForUserInMatch(String(oldVotedForId), matchId, homeGoals, awayGoals);
-
-          const voteXP = teamResult === 'win' ? xpPointsTable.motmVote.win : xpPointsTable.motmVote.lose;
-          const userResult = await sequelize.query(
-            `SELECT id, "firstName", xp FROM users WHERE id = $1`,
-            { bind: [oldVotedForId], type: QueryTypes.SELECT }
-          );
-          if (userResult.length > 0) {
-            const user = userResult[0] as any;
-            const newXP = Math.max(0, (user.xp || 0) - voteXP);
-            await sequelize.query(`UPDATE users SET xp = $1 WHERE id = $2`, { bind: [newXP, oldVotedForId] });
-            console.log(`🗳️ Vote removed - ${user.firstName} lost -${voteXP} XP`);
-
-            // Also subtract from match_statistics.xp_awarded to keep league table in sync
-            try {
-              const existingStats = await sequelize.query(
-                `SELECT xp_awarded FROM match_statistics WHERE match_id = $1 AND user_id = $2`,
-                { bind: [matchId, oldVotedForId], type: QueryTypes.SELECT }
-              );
-              if (existingStats.length > 0) {
-                const prevXpAwarded = (existingStats[0] as any)?.xp_awarded || 0;
-                const newXpAwarded = Math.max(0, prevXpAwarded - voteXP);
-                await sequelize.query(
-                  `UPDATE match_statistics SET xp_awarded = $1 WHERE match_id = $2 AND user_id = $3`,
-                  { bind: [newXpAwarded, matchId, oldVotedForId] }
-                );
-                console.log(`🗳️ match_statistics.xp_awarded reduced: ${prevXpAwarded} → ${newXpAwarded}`);
-              }
-            } catch (statsErr) {
-              console.error('⚠️ Could not update match_statistics.xp_awarded for vote removal:', statsErr);
-            }
-          }
-        }
-      } catch (e) { console.error('Error removing vote XP:', e); }
-    }
+    // Removing vote
     await Vote.destroy({ where: { matchId, voterId, category: { [Op.or]: ['motm', null] } } });
     try {
-      await recalculateMatchXPForCurrentState(matchId, [oldVotedForId]);
+      await recalculateMatchXPForCurrentState(matchId, [oldVotedForId].filter(Boolean) as string[]);
     } catch (recalcErr) {
       console.error('Could not recalculate match XP after vote removal:', recalcErr);
     }
@@ -883,49 +889,7 @@ export const voteForMotm = async (ctx: Context) => {
     return;
   }
 
-  // If changing vote, subtract XP from old voted player first
-  if (oldVotedForId && targetUserId && oldVotedForId !== targetUserId) {
-    try {
-      const match = await Match.findByPk(matchId);
-      if (match) {
-        const homeGoals = match.homeTeamGoals ?? 0;
-        const awayGoals = match.awayTeamGoals ?? 0;
-        const teamResult = await getTeamResultForUserInMatch(String(oldVotedForId), matchId, homeGoals, awayGoals);
-
-        const voteXP = teamResult === 'win' ? xpPointsTable.motmVote.win : xpPointsTable.motmVote.lose;
-        const userResult = await sequelize.query(
-          `SELECT id, "firstName", xp FROM users WHERE id = $1`,
-          { bind: [oldVotedForId], type: QueryTypes.SELECT }
-        );
-        if (userResult.length > 0) {
-          const user = userResult[0] as any;
-          const newXP = Math.max(0, (user.xp || 0) - voteXP);
-          await sequelize.query(`UPDATE users SET xp = $1 WHERE id = $2`, { bind: [newXP, oldVotedForId] });
-          console.log(`🗳️ Vote changed - ${user.firstName} lost -${voteXP} XP`);
-
-          // Also subtract from match_statistics.xp_awarded to keep league table in sync
-          try {
-            const existingStats = await sequelize.query(
-              `SELECT xp_awarded FROM match_statistics WHERE match_id = $1 AND user_id = $2`,
-              { bind: [matchId, oldVotedForId], type: QueryTypes.SELECT }
-            );
-            if (existingStats.length > 0) {
-              const prevXpAwarded = (existingStats[0] as any)?.xp_awarded || 0;
-              const newXpAwarded = Math.max(0, prevXpAwarded - voteXP);
-              await sequelize.query(
-                `UPDATE match_statistics SET xp_awarded = $1 WHERE match_id = $2 AND user_id = $3`,
-                { bind: [newXpAwarded, matchId, oldVotedForId] }
-              );
-              console.log(`🗳️ match_statistics.xp_awarded reduced (vote change): ${prevXpAwarded} → ${newXpAwarded}`);
-            }
-          } catch (statsErr) {
-            console.error('⚠️ Could not update match_statistics.xp_awarded for vote change:', statsErr);
-          }
-        }
-      }
-    } catch (e) { console.error('Error removing old vote XP:', e); }
-  }
-
+  // Update or create vote
   await Vote.destroy({ where: { matchId, voterId, category: { [Op.or]: ['motm', null] } } });
   if (!targetUserId) {
     ctx.throw(400, 'Selected player is invalid for this match.');
@@ -933,98 +897,15 @@ export const voteForMotm = async (ctx: Context) => {
   }
 
   await Vote.create({ matchId, voterId, votedForId: targetUserId, category: 'motm' });
+  console.log(`🗳️ MOTM Vote created - voterId: ${voterId}, votedForId: ${targetUserId}, matchId: ${matchId}`);
 
-  console.log(`🗳️ Vote created - voterId: ${voterId}, votedForId: ${targetUserId}, matchId: ${matchId}`);
-  console.log(`🗳️ Old vote was for: ${oldVotedForId || 'none'}`);
-
-  // 🗳️ Award XP to the voted player immediately (skip if same player)
-  if (!oldVotedForId || oldVotedForId !== targetUserId) {
-    console.log(`🗳️ Processing XP award for ${targetUserId}...`);
-    try {
-      const match = await Match.findByPk(matchId);
-      console.log(`🗳️ Match found: ${match ? 'YES' : 'NO'}`);
-
-      if (match) {
-        // Determine if voted player's team won, lost, or drew
-        const homeGoals = match.homeTeamGoals ?? 0;
-        const awayGoals = match.awayTeamGoals ?? 0;
-        console.log(`🗳️ Score: Home ${homeGoals} - Away ${awayGoals}`);
-
-        const team = await getPlayerTeamForMatch(targetUserId, matchId);
-        console.log(`🗳️ VotedFor team: ${team || 'unknown'}`);
-
-        const teamResult = await getTeamResultForUserInMatch(targetUserId, matchId, homeGoals, awayGoals);
-        console.log(`🗳️ Team result: ${teamResult}`);
-
-        // Award motmVote XP for this single vote
-        const voteXP = teamResult === 'win' ? xpPointsTable.motmVote.win : xpPointsTable.motmVote.lose;
-        console.log(`🗳️ Vote XP to award: ${voteXP}`);
-
-        // Get current user XP and add vote XP
-        const userResult = await sequelize.query(
-          `SELECT id, "firstName", xp FROM users WHERE id = $1`,
-          { bind: [targetUserId], type: QueryTypes.SELECT }
-        );
-        console.log(`🗳️ User query result: ${JSON.stringify(userResult)}`);
-
-        if (userResult.length > 0) {
-          const user = userResult[0] as any;
-          const currentXP = user.xp || 0;
-          const newXP = currentXP + voteXP;
-
-          console.log(`🗳️ Updating user XP: ${currentXP} + ${voteXP} = ${newXP}`);
-
-          const updateResult = await sequelize.query(
-            `UPDATE users SET xp = $1 WHERE id = $2 RETURNING id, xp`,
-            { bind: [newXP, targetUserId], type: QueryTypes.UPDATE }
-          );
-          console.log(`🗳️ Update result: ${JSON.stringify(updateResult)}`);
-
-          // Also update match_statistics.xp_awarded to keep league table XP in sync
-          try {
-            const existingStats = await sequelize.query(
-              `SELECT xp_awarded FROM match_statistics WHERE match_id = $1 AND user_id = $2`,
-              { bind: [matchId, targetUserId], type: QueryTypes.SELECT }
-            );
-            if (existingStats.length > 0) {
-              const prevXpAwarded = (existingStats[0] as any)?.xp_awarded || 0;
-              const newXpAwarded = prevXpAwarded + voteXP;
-              await sequelize.query(
-                `UPDATE match_statistics SET xp_awarded = $1 WHERE match_id = $2 AND user_id = $3`,
-                { bind: [newXpAwarded, matchId, targetUserId] }
-              );
-              console.log(`🗳️ match_statistics.xp_awarded updated: ${prevXpAwarded} → ${newXpAwarded}`);
-            }
-          } catch (statsErr) {
-            console.error('⚠️ Could not update match_statistics.xp_awarded for vote:', statsErr);
-          }
-
-          // Verify the update
-          const verifyResult = await sequelize.query(
-            `SELECT id, "firstName", xp FROM users WHERE id = $1`,
-            { bind: [targetUserId], type: QueryTypes.SELECT }
-          );
-          console.log(`🗳️ VERIFIED - User XP after update: ${JSON.stringify(verifyResult)}`);
-
-          console.log(`✅ MOTM Vote XP awarded! ${user.firstName} received +${voteXP} XP (${currentXP} → ${newXP})`);
-        } else {
-          console.log(`❌ User not found with id: ${targetUserId}`);
-        }
-      }
-    } catch (voteXpErr: any) {
-      console.error('⚠️ Error awarding vote XP:', voteXpErr);
-      console.error('⚠️ Error message:', voteXpErr?.message);
-      console.error('⚠️ Error stack:', voteXpErr?.stack);
-    }
-  } else {
-    console.log(`🗳️ Skipping XP - same player voted again`);
-  }
-
+  // Recalculate canonical XP for match, updating match_statistics.xp_awarded and users.xp for both old and new voted players
   try {
-    await recalculateMatchXPForCurrentState(matchId, [oldVotedForId, targetUserId]);
+    await recalculateMatchXPForCurrentState(matchId, [oldVotedForId, targetUserId].filter(Boolean) as string[]);
   } catch (recalcErr) {
     console.error('Could not recalculate match XP after vote submit/change:', recalcErr);
   }
+
 
   try {
     const match = await Match.findByPk(matchId);
@@ -1043,7 +924,15 @@ export const voteForMotm = async (ctx: Context) => {
   // do not generate notifications that reveal who a user selected as MOTM.
 
 
-  try { cache.clearPattern(`match_votes_${matchId}_`); } catch { }
+  try {
+    cache.clearPattern(`match_votes_${matchId}_`);
+    cache.clearPattern(`match_${matchId}`);
+    cache.clearPattern('user_');
+    cache.clearPattern('leaderboard');
+    cache.clearPattern('league_');
+    cache.clearPattern('matches_');
+    cache.clearPattern('achievements:');
+  } catch { }
 
   ctx.body = { success: true, message: 'Vote recorded successfully' };
 };
@@ -1947,9 +1836,9 @@ export const getMatchVotes = async (ctx: Context) => {
   }
 
   try {
-    // Get all votes grouped by votedForId
+    // Get all MOTM votes grouped by votedForId
     const votes = await Vote.findAll({
-      where: { matchId },
+      where: { matchId, category: { [Op.or]: ['motm', null] } },
       attributes: ['votedForId', [fn('COUNT', fn('DISTINCT', col('voterId'))), 'count']],
       group: ['votedForId']
     });
@@ -1968,11 +1857,12 @@ export const getMatchVotes = async (ctx: Context) => {
       }
     });
 
-    // Get current user's vote
+    // Get current user's MOTM vote
     const userVote = await Vote.findOne({
-      where: { matchId, voterId: userId },
+      where: { matchId, voterId: userId, category: { [Op.or]: ['motm', null] } },
       attributes: ['votedForId']
     });
+
 
     const rawUserVote = userVote?.votedForId ? String(userVote.votedForId) : null;
     const userVoteDisplay = rawUserVote ? (mirrorToDisplay.get(rawUserVote) || rawUserVote) : null;
@@ -2605,25 +2495,51 @@ export const getCaptainPicks = async (ctx: Context) => {
 
     if (userId) {
       const userVotes = await Vote.findAll({
-        where: { matchId, voterId: userId, category: { [Op.in]: ['defence', 'influence'] } }
+        where: { matchId, voterId: userId, category: { [Op.in]: ['defence', 'influence', 'mentality'] } }
       });
       userVotes.forEach((v: any) => {
         if (v.category === 'defence') userDefPick = toDisplay(v.votedForId);
-        if (v.category === 'influence') userInfPick = toDisplay(v.votedForId);
+        if (v.category === 'influence' || v.category === 'mentality') userInfPick = toDisplay(v.votedForId);
       });
-
-      // Fallback for legacy matches or captain picks stored on Match record
-      if (!userDefPick || !userInfPick) {
-        const requesterTeam = await getPlayerTeamForMatch(String(userId), String(matchId));
-        if (requesterTeam === 'home') {
-          if (!userDefPick) userDefPick = toDisplay(match.homeDefensiveImpactId);
-          if (!userInfPick) userInfPick = toDisplay(match.homeMentalityId);
-        } else if (requesterTeam === 'away') {
-          if (!userDefPick) userDefPick = toDisplay(match.awayDefensiveImpactId);
-          if (!userInfPick) userInfPick = toDisplay(match.awayMentalityId);
-        }
-      }
     }
+
+    // Count votes per player for defence and influence/mentality
+    const categoryVoteCounts = await Vote.findAll({
+      where: { matchId, category: { [Op.in]: ['defence', 'influence', 'mentality'] } },
+      attributes: ['category', 'votedForId', [fn('COUNT', fn('DISTINCT', col('voterId'))), 'count']],
+      group: ['category', 'votedForId']
+    });
+
+    const defenceVotes: Record<string, number> = {};
+    const influenceVotes: Record<string, number> = {};
+
+    categoryVoteCounts.forEach((v: any) => {
+      const cat = String(v.category);
+      const rawId = String(v.votedForId || '');
+      const displayId = toDisplay(rawId) || rawId;
+      const count = Number(v.get('count')) || 0;
+      if (cat === 'defence') {
+        defenceVotes[displayId] = (defenceVotes[displayId] || 0) + count;
+      } else {
+        influenceVotes[displayId] = (influenceVotes[displayId] || 0) + count;
+      }
+    });
+
+    // Fallback to team-level picks from Match table ONLY if no votes exist in Votes table for that category
+    if (Object.keys(defenceVotes).length === 0) {
+      [match.homeDefensiveImpactId, match.awayDefensiveImpactId].filter(Boolean).forEach(id => {
+        const sid = toDisplay(id) || String(id);
+        defenceVotes[sid] = (defenceVotes[sid] || 0) + 1;
+      });
+    }
+
+    if (Object.keys(influenceVotes).length === 0) {
+      [match.homeMentalityId, match.awayMentalityId].filter(Boolean).forEach(id => {
+        const sid = toDisplay(id) || String(id);
+        influenceVotes[sid] = (influenceVotes[sid] || 0) + 1;
+      });
+    }
+
 
     const result = {
       success: true,
@@ -2638,8 +2554,11 @@ export const getCaptainPicks = async (ctx: Context) => {
       away: {
         defence: toDisplay(match.awayDefensiveImpactId),
         influence: toDisplay(match.awayMentalityId)
-      }
+      },
+      defenceVotes,
+      influenceVotes
     };
+
 
     cache.set(cacheKey, result, 300);
     ctx.body = result;
@@ -2711,12 +2630,19 @@ export const submitCaptainPicks = async (ctx: Context) => {
       return;
     }
 
-    // Save per-voter Vote record
+    // Save per-voter Vote record and track previous voted ID for XP deduction
+    let previousVotedId: string | null = null;
     if (userId && category) {
-      const existingVote = await Vote.findOne({ where: { matchId, voterId: userId, category } });
+      const matchCategories = category === 'influence' ? ['influence', 'mentality'] : ['defence', 'defensive'];
+      const existingVote = await Vote.findOne({
+        where: { matchId, voterId: userId, category: { [Op.in]: matchCategories } }
+      });
+      if (existingVote && existingVote.votedForId) {
+        previousVotedId = String(existingVote.votedForId);
+      }
       if (targetUserId) {
         if (existingVote) {
-          await existingVote.update({ votedForId: targetUserId });
+          await existingVote.update({ votedForId: targetUserId, category });
         } else {
           await Vote.create({ matchId, voterId: userId, votedForId: targetUserId, category });
         }
@@ -2724,6 +2650,7 @@ export const submitCaptainPicks = async (ctx: Context) => {
         await existingVote.destroy();
       }
     }
+
 
     const previousPickId = (() => {
       if (!targetTeam) return '';
@@ -2733,59 +2660,48 @@ export const submitCaptainPicks = async (ctx: Context) => {
       return targetTeam === 'home' ? String((match as any).homeMentalityId || '') : String((match as any).awayMentalityId || '');
     })();
 
-    // Save pick into selected player's team slot (preserves existing Match column update logic).
-    const activeTeam = targetTeam || requesterTeam;
-    if (isNone && activeTeam) {
-      if (activeTeam === 'home') {
-        if (category === 'defence') {
-          await match.update({ homeDefensiveImpactId: null });
-        } else {
-          await match.update({ homeMentalityId: null });
-        }
-      } else if (activeTeam === 'away') {
-        if (category === 'defence') {
-          await match.update({ awayDefensiveImpactId: null });
-        } else {
-          await match.update({ awayMentalityId: null });
-        }
+    // Save pick into selected player's team slot & clear previous pick columns
+    if (isNone) {
+      if (category === 'defence') {
+        await match.update({ homeDefensiveImpactId: null, awayDefensiveImpactId: null });
+      } else {
+        await match.update({ homeMentalityId: null, awayMentalityId: null });
       }
     } else if (targetTeam === 'home') {
       if (category === 'defence') {
-        await match.update({ homeDefensiveImpactId: targetUserId });
+        await match.update({ homeDefensiveImpactId: targetUserId, awayDefensiveImpactId: null });
       } else {
-        await match.update({ homeMentalityId: targetUserId });
+        await match.update({ homeMentalityId: targetUserId, awayMentalityId: null });
       }
     } else if (targetTeam === 'away') {
       if (category === 'defence') {
-        await match.update({ awayDefensiveImpactId: targetUserId });
+        await match.update({ awayDefensiveImpactId: targetUserId, homeDefensiveImpactId: null });
       } else {
-        await match.update({ awayMentalityId: targetUserId });
+        await match.update({ awayMentalityId: targetUserId, homeMentalityId: null });
       }
     }
 
-    if (targetUserId) {
-      try {
-        await recalculateMatchXPForCurrentState(matchId, [targetUserId, previousPickId]);
-      } catch (recalcErr) {
-        console.error('Could not recalculate match XP after captain pick:', recalcErr);
-      }
-    }
 
-    // Clear cache
-    cache.clearPattern(`captain_picks_${matchId}`);
-    cache.del(`match_${matchId}`);
     try {
-      cache.clearPattern('user_achievements_');
-      cache.clearPattern('achievements:');
-    } catch {}
-    if (match.leagueId) {
-      try {
-        cache.clearPattern(`league_${match.leagueId}`);
-        cache.clearPattern(`matches_league_${match.leagueId}`);
-      } catch (cacheErr) {
-        console.error('Failed to invalidate matches list cache after captain pick:', cacheErr);
-      }
+      await recalculateMatchXPForCurrentState(matchId, [targetUserId, previousVotedId, previousPickId].filter(Boolean) as string[]);
+    } catch (recalcErr) {
+      console.error('Could not recalculate match XP after captain pick:', recalcErr);
     }
+
+
+    // Invalidate caches across system so live user XP and leaderboards update immediately
+    try {
+      cache.clearPattern(`captain_picks_${matchId}`);
+      cache.clearPattern(`match_${matchId}`);
+      cache.clearPattern('user_');
+      cache.clearPattern('leaderboard');
+      cache.clearPattern('league_');
+      cache.clearPattern('matches_');
+      cache.clearPattern('achievements:');
+    } catch (cacheErr) {
+      console.error('Failed to invalidate cache after captain pick:', cacheErr);
+    }
+
 
     ctx.body = {
       success: true,
