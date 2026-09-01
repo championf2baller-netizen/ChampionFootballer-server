@@ -11,6 +11,9 @@ router.post('/', required, matchController.createMatch);
 // DEBUG: Get XP breakdown for a match (shows who got what XP)
 router.get('/:matchId/xp-breakdown', required, matchController.getMatchXPBreakdown);
 
+// Preview real-time match XP without saving
+router.post('/:matchId/preview-xp', required, matchController.previewMatchXP);
+
 // Vote for MOTM
 router.post('/:id/votes', required, matchController.voteForMotm);
 

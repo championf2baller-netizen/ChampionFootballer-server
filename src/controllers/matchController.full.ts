@@ -3220,6 +3220,7 @@ export const getMatchXPBreakdown = async (ctx: Context) => {
       homeTeamPlayers: homeUsers,
       awayTeamPlayers: awayUsers,
       playerXPBreakdown: playerBreakdown,
+      players: playerBreakdown,
       summary: {
         totalPlayersWithStats: stats.length,
         totalVotes: (votes as any[]).length
@@ -3236,6 +3237,80 @@ export const getMatchXPBreakdown = async (ctx: Context) => {
     };
   }
 };
+
+// Real-time Match XP Preview Endpoint (Server-Side Calculation)
+export const previewMatchXP = async (ctx: Context) => {
+  const { matchId } = ctx.params;
+  const body = (ctx.request.body as any) || {};
+
+  try {
+    const homeTeamGoals = Number(body.homeTeamGoals ?? 0);
+    const awayTeamGoals = Number(body.awayTeamGoals ?? 0);
+    const playerStatsList = Array.isArray(body.stats) ? body.stats : [];
+
+    let matchResult = 'draw';
+    if (homeTeamGoals > awayTeamGoals) matchResult = 'home_win';
+    else if (awayTeamGoals > homeTeamGoals) matchResult = 'away_win';
+
+    const xpTable = xpPointsTable;
+
+    const previews = playerStatsList.map((ps: any) => {
+      const isHome = ps.team === 'home';
+      const isWin = isHome ? matchResult === 'home_win' : matchResult === 'away_win';
+      const isDraw = matchResult === 'draw';
+
+      const teamResultType = isWin ? 'WIN' : (isDraw ? 'DRAW' : 'LOSS');
+      const teamResultXP = isWin ? xpTable.winningTeam : (isDraw ? xpTable.draw : xpTable.losingTeam);
+
+      const goals = Math.max(0, Number(ps.goals || 0));
+      const assists = Math.max(0, Number(ps.assists || 0));
+      const cleanSheets = Math.max(0, Number(ps.cleanSheets || 0));
+      const motmVotes = Math.max(0, Number(ps.motmVotes || 0));
+      const isMotmWinner = ps.isMotmWinner === true;
+      const finalIsDef = ps.isDefensiveImpact === true;
+      const finalMent = ps.isMentalityPick === true;
+
+      const goalXP = goals * (isWin ? xpTable.goal.win : xpTable.goal.lose);
+      const assistXP = assists * (isWin ? xpTable.assist.win : xpTable.assist.lose);
+      const cleanSheetXP = cleanSheets * xpTable.cleanSheet;
+      const motmVoteXP = motmVotes * (isWin ? xpTable.motmVote.win : xpTable.motmVote.lose);
+      const motmWinnerXP = isMotmWinner ? (isWin ? xpTable.motm.win : xpTable.motm.lose) : 0;
+      const defXP = finalIsDef ? (isWin ? xpTable.defensiveImpact.win : xpTable.defensiveImpact.lose) : 0;
+      const mentXP = finalMent ? (isWin ? xpTable.mentality.win : xpTable.mentality.lose) : 0;
+
+      const calculatedTotalXP = teamResultXP + goalXP + assistXP + cleanSheetXP + motmVoteXP + motmWinnerXP + defXP + mentXP;
+
+      return {
+        userId: ps.userId,
+        calculatedTotalXP,
+        teamResultType,
+        teamResultXP,
+        goalXP,
+        assistXP,
+        cleanSheetXP,
+        motmVoteXP,
+        motmWinnerXP,
+        defensiveImpactXP: defXP,
+        mentalityXP: mentXP,
+      };
+    });
+
+    ctx.body = {
+      success: true,
+      matchId,
+      matchResult,
+      previews,
+    };
+  } catch (err) {
+    ctx.status = 500;
+    ctx.body = {
+      success: false,
+      message: 'Failed to preview XP',
+      error: err instanceof Error ? err.message : String(err)
+    };
+  }
+};
+
 
 // Export all functions
 export {
