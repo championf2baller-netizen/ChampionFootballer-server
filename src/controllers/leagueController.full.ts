@@ -5118,9 +5118,10 @@ export const getLeaguePlayerAverages = async (ctx: Context) => {
   }
 
   try {
+    const VALID_MATCH_STATUSES = ['RESULT_PUBLISHED', 'RESULT_UPLOADED', 'REVISION_REQUESTED'];
     const matchWhere: any = {
       leagueId: id,
-      status: { [Op.in]: ['RESULT_PUBLISHED', 'RESULT_UPLOADED'] }
+      status: { [Op.in]: VALID_MATCH_STATUSES }
     };
     if (selectedSeasonId) {
       matchWhere.seasonId = selectedSeasonId;
@@ -5170,10 +5171,18 @@ export const getLeaguePlayerAverages = async (ctx: Context) => {
 
     const playerTeamMap = new Map<string, 'home' | 'away'>();
     homeMatches.forEach((row: any) => {
-      playerTeamMap.set(`${row.matchId}_${row.userId}`, 'home');
+      const mid = String(row.matchId || row.matchid || '').trim();
+      const uid = String(row.userId || row.userid || '').trim();
+      if (mid && uid) {
+        playerTeamMap.set(`${mid}_${uid}`, 'home');
+      }
     });
     awayMatches.forEach((row: any) => {
-      playerTeamMap.set(`${row.matchId}_${row.userId}`, 'away');
+      const mid = String(row.matchId || row.matchid || '').trim();
+      const uid = String(row.userId || row.userid || '').trim();
+      if (mid && uid) {
+        playerTeamMap.set(`${mid}_${uid}`, 'away');
+      }
     });
 
     // Get all match statistics for these matches
@@ -5221,21 +5230,19 @@ export const getLeaguePlayerAverages = async (ctx: Context) => {
         activeUserIds = season.players.map((p: any) => String(p.id));
       }
     } else {
-      const members = await User.findAll({
-        where: registeredUserWhere(),
-        attributes: ['id'],
-        include: [
-          {
-            model: League,
-            as: 'leagues',
-            attributes: [],
-            through: { attributes: [] },
-            where: { id },
-            required: true
-          }
-        ]
-      });
-      activeUserIds = members.map((m: any) => String(m.id));
+      const activeUserRows = await Match.sequelize!.query(
+        `SELECT DISTINCT ms.user_id 
+         FROM match_statistics ms 
+         INNER JOIN "Matches" m ON ms.match_id = m.id 
+         INNER JOIN users u ON ms.user_id = u.id
+         WHERE m.status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED') 
+           AND (m.deleted = false OR m.deleted IS NULL)
+           AND (u.provider IS NULL OR u.provider != 'guest')
+           AND (u.email IS NULL OR u.email NOT ILIKE '%guest%')
+           AND m."leagueId" = :id`,
+        { replacements: { id }, type: QueryTypes.SELECT }
+      ) as any[];
+      activeUserIds = activeUserRows.map((r: any) => String(r.user_id));
     }
 
     const nonGuestUserIds = new Set(activeUserIds);
@@ -5324,15 +5331,23 @@ export const getLeaguePlayerAverages = async (ctx: Context) => {
 
       const mResult = matchResultMap[String(stat.match_id)];
       if (mResult) {
+        const teamFromMap = playerTeamMap.get(`${String(stat.match_id)}_${uid}`);
         let isHome = stat.type === 'home';
-        const teamFromMap = playerTeamMap.get(`${stat.match_id}_${uid}`);
-        if (teamFromMap) {
-          isHome = teamFromMap === 'home';
+        let isAway = stat.type === 'away';
+        if (teamFromMap === 'home') {
+          isHome = true;
+          isAway = false;
+        } else if (teamFromMap === 'away') {
+          isHome = false;
+          isAway = true;
         }
-        const teamGoals = isHome ? mResult.homeGoals : mResult.awayGoals;
-        const oppGoals = isHome ? mResult.awayGoals : mResult.homeGoals;
-        if (teamGoals > oppGoals) {
-          playerStats.wins += 1;
+
+        if (isHome || isAway) {
+          const teamGoals = isHome ? mResult.homeGoals : mResult.awayGoals;
+          const oppGoals = isHome ? mResult.awayGoals : mResult.homeGoals;
+          if (teamGoals > oppGoals) {
+            playerStats.wins += 1;
+          }
         }
       }
     }
@@ -5420,34 +5435,37 @@ export const getLeaguePlayerAverages = async (ctx: Context) => {
     }
 
     // Compute per-match averages: for each player compute their per-match average,
-    // then average those across all players. This gives the true "league average per match".
+    // then average those across active players who have played at least 1 match.
+    const activePlayerIds = playerIds.filter(uid => playerMap[uid].matches > 0);
+    const activePlayersCount = activePlayerIds.length > 0 ? activePlayerIds.length : totalPlayers;
+
     const metricKeysForAvg = ['goals', 'assists', 'cleanSheets', 'defence', 'motmVotes', 'defensiveImpactVotes', 'impact'] as const;
     const perMatchAverages: Record<string, number> = {};
     for (const key of metricKeysForAvg) {
-      const playerAvgs = playerIds.map(uid => {
+      const playerAvgs = (activePlayerIds.length > 0 ? activePlayerIds : playerIds).map(uid => {
         const p = playerMap[uid];
         const mc = Math.max(p.matches, 1);
         return p[key] / mc;
       });
       const sumAvg = playerAvgs.reduce((a, b) => a + b, 0);
-      perMatchAverages[key] = totalPlayers > 0 ? +(sumAvg / totalPlayers).toFixed(2) : 0;
+      perMatchAverages[key] = activePlayersCount > 0 ? +(sumAvg / activePlayersCount).toFixed(1) : 0;
     }
 
-    // Expected rates averages
+    // Expected rates averages (goals/assists/cleanSheets per match)
     const expectedKeys = {
-      expectedGoals: 'matchesWithGoals',
-      expectedAssists: 'matchesWithAssists',
-      expectedCleanSheets: 'matchesWithCleanSheets'
+      expectedGoals: 'goals',
+      expectedAssists: 'assists',
+      expectedCleanSheets: 'cleanSheets'
     } as const;
 
     for (const [expKey, rawKey] of Object.entries(expectedKeys)) {
-      const playerAvgs = playerIds.map(uid => {
+      const playerAvgs = (activePlayerIds.length > 0 ? activePlayerIds : playerIds).map(uid => {
         const p = playerMap[uid];
         const mc = Math.max(p.matches, 1);
         return p[rawKey as keyof AggregatedPlayerStats] / mc;
       });
       const sumAvg = playerAvgs.reduce((a, b) => a + b, 0);
-      perMatchAverages[expKey] = totalPlayers > 0 ? +(sumAvg / totalPlayers).toFixed(2) : 0;
+      perMatchAverages[expKey] = activePlayersCount > 0 ? +(sumAvg / activePlayersCount).toFixed(1) : 0;
     }
 
     // Compute player-wise maximum stats in a single match and their league averages
@@ -5501,12 +5519,52 @@ export const getLeaguePlayerAverages = async (ctx: Context) => {
     const leagueAvgMaxSingleAssists = totalPlayers > 0 ? +(sumMaxAssists / totalPlayers).toFixed(2) : 0;
     const leagueAvgMaxSingleMotm = totalPlayers > 0 ? +(sumMaxMotm / totalPlayers).toFixed(2) : 0;
 
-    const playerWinRates = playerIds.map(uid => {
+    // Fetch player wins directly from UserHomeMatches and UserAwayMatches (aligning with playerController logic)
+    const [homeWinsRows, awayWinsRows] = await Promise.all([
+      Match.sequelize!.query(
+        `SELECT uhm."userId", COUNT(DISTINCT m.id) as wins
+         FROM "UserHomeMatches" uhm
+         INNER JOIN "Matches" m ON uhm."matchId" = m.id
+         WHERE m.status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED')
+           AND (m.deleted = false OR m.deleted IS NULL)
+           AND m."homeTeamGoals" > m."awayTeamGoals"
+           ${selectedSeasonId ? 'AND m."seasonId" = :selectedSeasonId' : 'AND m."leagueId" = :id'}
+         GROUP BY uhm."userId"`,
+        { replacements: { id, selectedSeasonId }, type: QueryTypes.SELECT }
+      ),
+      Match.sequelize!.query(
+        `SELECT uam."userId", COUNT(DISTINCT m.id) as wins
+         FROM "UserAwayMatches" uam
+         INNER JOIN "Matches" m ON uam."matchId" = m.id
+         WHERE m.status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED')
+           AND (m.deleted = false OR m.deleted IS NULL)
+           AND m."awayTeamGoals" > m."homeTeamGoals"
+           ${selectedSeasonId ? 'AND m."seasonId" = :selectedSeasonId' : 'AND m."leagueId" = :id'}
+         GROUP BY uam."userId"`,
+        { replacements: { id, selectedSeasonId }, type: QueryTypes.SELECT }
+      )
+    ]) as [any[], any[]];
+
+    const playerWinCountMap: Record<string, number> = {};
+    homeWinsRows.forEach((row: any) => {
+      const uid = String(row.userId || row.userid || row.user_id || '').trim();
+      const w = Number(row.wins) || 0;
+      if (uid) playerWinCountMap[uid] = (playerWinCountMap[uid] || 0) + w;
+    });
+    awayWinsRows.forEach((row: any) => {
+      const uid = String(row.userId || row.userid || row.user_id || '').trim();
+      const w = Number(row.wins) || 0;
+      if (uid) playerWinCountMap[uid] = (playerWinCountMap[uid] || 0) + w;
+    });
+
+    const targetWinPlayerIds = activePlayerIds.length > 0 ? activePlayerIds : playerIds;
+    const playerWinRates = targetWinPlayerIds.map(uid => {
       const p = playerMap[uid];
       const mc = Math.max(p.matches, 1);
-      return (p.wins / mc) * 100;
+      const wins = playerWinCountMap[uid] !== undefined ? playerWinCountMap[uid] : p.wins;
+      return (wins / mc) * 100;
     });
-    const avgWinRate = totalPlayers > 0 ? +(playerWinRates.reduce((a, b) => a + b, 0) / totalPlayers).toFixed(1) : 0;
+    const avgWinRate = targetWinPlayerIds.length > 0 ? +(playerWinRates.reduce((a, b) => a + b, 0) / targetWinPlayerIds.length).toFixed(1) : 0;
 
     const leagueAvg = {
       goals: perMatchAverages.goals,

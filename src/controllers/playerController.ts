@@ -15,7 +15,7 @@ export const getAllPlayers = async (ctx: Context) => {
     ctx.body = cached;
     return;
   }
-  
+
   try {
     const players = await UserModel.findAll({
       attributes: ['id', 'firstName', 'lastName', 'profilePicture', 'xp', 'position', 'positionType'],
@@ -26,7 +26,7 @@ export const getAllPlayers = async (ctx: Context) => {
       order: [['xp', 'DESC']],
       limit: 50
     });
-    
+
     const result = {
       success: true,
       players: players.map(p => ({
@@ -49,7 +49,7 @@ export const getAllPlayers = async (ctx: Context) => {
 
 export const getPlayerById = async (ctx: Context) => {
   const { id } = ctx.params;
-  
+
   try {
     const player = await UserModel.findByPk(id, {
       attributes: { exclude: ['password'] },
@@ -99,8 +99,10 @@ export const getPlayerStats = async (ctx: Context) => {
       return;
     }
 
+    const VALID_MATCH_STATUSES = ['RESULT_PUBLISHED', 'RESULT_UPLOADED', 'REVISION_REQUESTED'];
+
     const matchWhere: Record<string, unknown> = {
-      status: { [Op.in]: ['RESULT_PUBLISHED', 'RESULT_UPLOADED'] },
+      status: { [Op.in]: VALID_MATCH_STATUSES },
       deleted: { [Op.ne]: true }
     };
     let shouldUseSeasonScope = Boolean(seasonId && seasonId !== 'all');
@@ -113,7 +115,7 @@ export const getPlayerStats = async (ctx: Context) => {
           where: {
             leagueId,
             seasonId: { [Op.is]: null },
-            status: { [Op.in]: ['RESULT_PUBLISHED', 'RESULT_UPLOADED'] },
+            status: { [Op.in]: VALID_MATCH_STATUSES },
             deleted: { [Op.ne]: true }
           } as any
         });
@@ -196,10 +198,10 @@ export const getPlayerStats = async (ctx: Context) => {
 
     const votes = matchIds.length
       ? await Vote.findAll({
-          where: { matchId: { [Op.in]: matchIds }, votedForId: id },
-          attributes: ['matchId'],
-          raw: true
-        })
+        where: { matchId: { [Op.in]: matchIds }, votedForId: id },
+        attributes: ['matchId'],
+        raw: true
+      })
       : [];
 
     const votesByMatch: Record<string, number> = {};
@@ -475,40 +477,42 @@ export const getPlayerProfile = async (ctx: Context) => {
     const selectedLeagueId = typeof leagueId === 'string' && leagueId.trim() && leagueId !== 'all' ? leagueId.trim() : '';
     const selectedYear = typeof year === 'string' && year.trim() && year !== 'all' ? Number(year) : null;
 
+    const VALID_MATCH_STATUSES = ['RESULT_PUBLISHED', 'RESULT_UPLOADED', 'REVISION_REQUESTED'];
+
     // Fetch all published matches for the player in a single query
     const allMatches: any[] = uniqueMatchIds.length
       ? await MatchModel.findAll({
-          where: {
-            id: { [Op.in]: uniqueMatchIds },
-            status: { [Op.in]: ['RESULT_PUBLISHED', 'RESULT_UPLOADED', 'REVISION_REQUESTED'] },
-            deleted: { [Op.ne]: true }
-          },
-          attributes: [
-            'id',
-            'date',
-            'seasonId',
-            'homeTeamName',
-            'awayTeamName',
-            'location',
-            'leagueId',
-            'end',
-            'homeCaptainId',
-            'awayCaptainId',
-            'homeDefensiveImpactId',
-            'awayDefensiveImpactId',
-            'homeMentalityId',
-            'awayMentalityId',
-            'homeTeamGoals',
-            'awayTeamGoals',
-          ],
-          raw: true,
-        })
+        where: {
+          id: { [Op.in]: uniqueMatchIds },
+          status: { [Op.in]: VALID_MATCH_STATUSES },
+          deleted: { [Op.ne]: true }
+        },
+        attributes: [
+          'id',
+          'date',
+          'seasonId',
+          'homeTeamName',
+          'awayTeamName',
+          'location',
+          'leagueId',
+          'end',
+          'homeCaptainId',
+          'awayCaptainId',
+          'homeDefensiveImpactId',
+          'awayDefensiveImpactId',
+          'homeMentalityId',
+          'awayMentalityId',
+          'homeTeamGoals',
+          'awayTeamGoals',
+        ],
+        raw: true,
+      })
       : [];
 
     const allYears = [...new Set(
       allMatches
-        .map((match) => new Date(match.date).getFullYear())
-        .filter((matchYear) => Number.isFinite(matchYear))
+        .map((match) => match?.date ? new Date(match.date).getFullYear() : null)
+        .filter((matchYear): matchYear is number => typeof matchYear === 'number' && Number.isFinite(matchYear))
     )];
 
     // Filter matches for the specific request in-memory
@@ -532,10 +536,10 @@ export const getPlayerProfile = async (ctx: Context) => {
 
     const voteRows = visibleMatchIds.length
       ? await Vote.findAll({
-          where: { matchId: { [Op.in]: visibleMatchIds } },
-          attributes: ['voterId', 'votedForId', 'matchId'],
-          raw: true,
-        })
+        where: { matchId: { [Op.in]: visibleMatchIds } },
+        attributes: ['voterId', 'votedForId', 'matchId'],
+        raw: true,
+      })
       : [];
 
     const votesByMatchId = new Map<string, any[]>();
@@ -588,7 +592,7 @@ export const getPlayerProfile = async (ctx: Context) => {
     // 3. Group matches by league
     const leaguesMap = new Map();
     const playerLeagues = (player as any).leagues || [];
-    
+
     playerLeagues.forEach((league: any) => {
       leaguesMap.set(league.id, {
         id: league.id,
@@ -604,7 +608,7 @@ export const getPlayerProfile = async (ctx: Context) => {
     allStats.forEach((stat: any) => {
       const match = stat.match;
       if (!match) return;
-      
+
       const leagueId = match.leagueId;
       if (!leaguesMap.has(leagueId)) {
         leaguesMap.set(leagueId, {
@@ -663,6 +667,11 @@ export const getPlayerProfile = async (ctx: Context) => {
     });
 
     const leagues = Array.from(leaguesMap.values());
+    const validYears = [...new Set(
+      allStats
+        .map((s: any) => s.match?.date ? new Date(s.match.date).getFullYear() : null)
+        .filter((y): y is number => typeof y === 'number' && Number.isFinite(y))
+    )];
 
     // 4. Build response
     const response = {
@@ -670,7 +679,7 @@ export const getPlayerProfile = async (ctx: Context) => {
       data: {
         player: {
           id: player.id,
-          name: `${player.firstName} ${player.lastName}`,
+          name: `${player.firstName || ''} ${player.lastName || ''}`.trim() || 'Player',
           avatar: player.profilePicture,
           profilePicture: player.profilePicture,
           position: player.position,
@@ -679,7 +688,7 @@ export const getPlayerProfile = async (ctx: Context) => {
           rating: player.xp || 0
         },
         leagues: leagues,
-        years: [...new Set(allStats.map((s: any) => new Date(s.match?.date).getFullYear()))].filter(Boolean),
+        years: validYears,
         allYears,
         currentStats: {},
         accumulativeStats: {},
@@ -691,7 +700,7 @@ export const getPlayerProfile = async (ctx: Context) => {
     ctx.body = response;
   } catch (error) {
     console.error('Error fetching player profile:', error);
-    ctx.throw(500, 'Failed to fetch player profile.');
+    ctx.throw(500, error instanceof Error ? error.message : 'Failed to fetch player profile.');
   }
 };
 
@@ -828,10 +837,10 @@ export const getCareerDashboard = async (ctx: Context) => {
     // Fetch MOTM votes
     const votes = matchIds.length
       ? await Vote.findAll({
-          where: { matchId: { [Op.in]: matchIds }, votedForId: id },
-          attributes: ['matchId'],
-          raw: true
-        })
+        where: { matchId: { [Op.in]: matchIds }, votedForId: id },
+        attributes: ['matchId'],
+        raw: true
+      })
       : [];
 
     const votesByMatch: Record<string, number> = {};
