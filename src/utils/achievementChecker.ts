@@ -53,6 +53,7 @@ interface MatchSummary {
   result: Result;
   isCaptainWin: boolean;
   hasXFactorPick: boolean;
+  xFactorPicks: number;
   wonMotmAward: boolean;
   cleanSheetTeam: boolean;
 }
@@ -252,13 +253,14 @@ export const computeAchievementState = (
     const isCaptainWin =
       result === 'W' &&
       (sameComparableId(match.homeCaptainId, normalizedUserId) || sameComparableId(match.awayCaptainId, normalizedUserId));
-    const hasXFactorPick =
-      (match.defenceVotedUserIds || []).some((id) => sameComparableId(id, normalizedUserId)) ||
-      (match.influenceVotedUserIds || []).some((id) => sameComparableId(id, normalizedUserId)) ||
-      sameComparableId(match.homeDefensiveImpactId, normalizedUserId) ||
-      sameComparableId(match.awayDefensiveImpactId, normalizedUserId) ||
-      sameComparableId(match.homeMentalityId, normalizedUserId) ||
-      sameComparableId(match.awayMentalityId, normalizedUserId);
+    const xFactorPicks =
+      (match.defenceVotedUserIds || []).filter((id) => sameComparableId(id, normalizedUserId)).length +
+      (match.influenceVotedUserIds || []).filter((id) => sameComparableId(id, normalizedUserId)).length +
+      (sameComparableId(match.homeDefensiveImpactId, normalizedUserId) ? 1 : 0) +
+      (sameComparableId(match.awayDefensiveImpactId, normalizedUserId) ? 1 : 0) +
+      (sameComparableId(match.homeMentalityId, normalizedUserId) ? 1 : 0) +
+      (sameComparableId(match.awayMentalityId, normalizedUserId) ? 1 : 0);
+    const hasXFactorPick = xFactorPicks > 0;
 
     const motmWinnerId = getTopMotmWinner(match.votePlayerIds);
     const wonMotmAward = sameComparableId(motmWinnerId, normalizedUserId);
@@ -271,6 +273,7 @@ export const computeAchievementState = (
       result,
       isCaptainWin,
       hasXFactorPick,
+      xFactorPicks,
       wonMotmAward,
       cleanSheetTeam: result === 'W' && oppGoals === 0,
     });
@@ -311,9 +314,9 @@ export const computeAchievementState = (
     leaderOfLegendsBest = Math.max(leaderOfLegendsBest, captainWinsInLeague);
     leaderOfLegendsCount += Math.floor(captainWinsInLeague / 3);
 
-    const xFactorMatchesInLeague = arr.filter((m) => m.hasXFactorPick).length;
-    xFactorBest = Math.max(xFactorBest, xFactorMatchesInLeague);
-    xFactorCount += Math.floor(xFactorMatchesInLeague / 5);
+    const xFactorPicksInLeague = arr.reduce((sum, m) => sum + (m.xFactorPicks || (m.hasXFactorPick ? 1 : 0)), 0);
+    xFactorBest = Math.max(xFactorBest, xFactorPicksInLeague);
+    xFactorCount += Math.floor(xFactorPicksInLeague / 5);
 
     const motmAwardsInLeague = arr.filter((m) => m.wonMotmAward).length;
     spotlightStarBest = Math.max(spotlightStarBest, motmAwardsInLeague);
