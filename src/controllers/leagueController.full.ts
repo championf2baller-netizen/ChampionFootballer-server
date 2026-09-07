@@ -5070,6 +5070,24 @@ export const updateMatchInLeague = async (ctx: Context) => {
       }
     }
 
+    // Invalidate caches across system so live team names, matches, and leaderboards update immediately
+    try {
+      cache.del(`match_${matchId}`);
+      if (match.leagueId) {
+        cache.clearPattern(`league_${match.leagueId}`);
+        cache.clearPattern(`matches_league_${match.leagueId}`);
+      }
+      cache.clearPattern('match_');
+      cache.clearPattern('matches_');
+      cache.clearPattern('leaderboard_');
+      cache.clearPattern('trophy_room_');
+      invalidateServerCache('/leagues');
+      invalidateServerCache('/matches');
+      invalidateServerCache('/leaderboard');
+    } catch (cacheErr) {
+      console.error('Failed to invalidate match cache after updateMatchInLeague:', cacheErr);
+    }
+
     ctx.body = {
       success: true,
       match: {

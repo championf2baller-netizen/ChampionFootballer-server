@@ -1091,6 +1091,11 @@ export const updateMatchGoals = async (ctx: Context) => {
         cache.clearPattern(`league_${match.leagueId}`);
         cache.clearPattern(`matches_league_${match.leagueId}`);
       }
+      cache.clearPattern('leaderboard_');
+      cache.clearPattern('trophy_room_');
+      invalidateMemoryCache('/leaderboard');
+      invalidateMemoryCache('/leagues');
+      invalidateMemoryCache('/matches');
     } catch (cacheErr) {
       console.error('Failed to invalidate match cache after goals update:', cacheErr);
     }
