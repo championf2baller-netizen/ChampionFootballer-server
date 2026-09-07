@@ -2966,7 +2966,9 @@ export const getLeagueStatistics = async (ctx: Context) => {
         where: {
           leagueId: id,
           seasonId: seasonId,
-          status: { [Op.in]: ['RESULT_PUBLISHED', 'RESULT_UPLOADED'] }
+          status: { [Op.in]: ['RESULT_PUBLISHED', 'RESULT_UPLOADED'] },
+          archived: { [Op.ne]: true },
+          deleted: { [Op.ne]: true }
         }
       });
       playedMatches = completedCount;
@@ -2976,7 +2978,9 @@ export const getLeagueStatistics = async (ctx: Context) => {
         where: {
           leagueId: id,
           seasonId: seasonId,
-          status: { [Op.notIn]: ['RESULT_PUBLISHED', 'RESULT_UPLOADED'] }
+          status: { [Op.notIn]: ['RESULT_PUBLISHED', 'RESULT_UPLOADED'] },
+          archived: { [Op.ne]: true },
+          deleted: { [Op.ne]: true }
         }
       });
       remaining = scheduledCount;
@@ -4664,7 +4668,9 @@ export const createMatchInLeague = async (ctx: Context) => {
       const currentMatchCount = await Match.count({
         where: {
           leagueId,
-          seasonId: activeSeason.id
+          seasonId: activeSeason.id,
+          archived: { [Op.ne]: true },
+          deleted: { [Op.ne]: true }
         }
       });
 

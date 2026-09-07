@@ -185,7 +185,7 @@ const getMissingStatsPlayersForMatches = async (matchIds: string[]): Promise<str
 /**
  * Check if the last N completed matches in a season have all player stats submitted.
  */
-const checkLastNMatchesStatsComplete = async (seasonId: string, n: number = 2): Promise<{
+export const checkLastNMatchesStatsComplete = async (seasonId: string, n: number = 2): Promise<{
   allComplete: boolean;
   missingPlayerIds: string[];
 }> => {
@@ -295,10 +295,20 @@ export const isSeasonCompleted = async (seasonId: string): Promise<SeasonComplet
 
   let statsCheck = { allComplete: true, missingPlayerIds: [] as string[] };
   if (matchesReached) {
-    statsCheck = await checkLastNMatchesStatsComplete(seasonId, 2);
+    statsCheck = await checkLastNMatchesStatsComplete(seasonId, 1);
     if (!statsCheck.allComplete) {
-      console.log(`Season "${season.name}" matches reached (${completedCount}/${maxGames}) but last 2 matches missing stats from ${statsCheck.missingPlayerIds.length} players`);
+      console.log(`Season "${season.name}" matches reached (${completedCount}/${maxGames}) but last match missing stats from ${statsCheck.missingPlayerIds.length} players`);
     }
+  }
+
+  const isCompleted = matchesReached && statsCheck.allComplete;
+
+  // Automatically mark season as inactive ONLY when max matches limit is reached AND all stats for last match are submitted
+  if (isCompleted && season.isActive) {
+    season.isActive = false;
+    if (!season.endDate) season.endDate = new Date();
+    await season.save();
+    console.log(`🔒 Season "${season.name}" (ID: ${season.id}) automatically marked INACTIVE because completed matches (${completedCount}/${maxGames}) reached maximum limit and all player stats were submitted.`);
   }
 
   return {
@@ -308,7 +318,7 @@ export const isSeasonCompleted = async (seasonId: string): Promise<SeasonComplet
     isActive: season.isActive,
     maxGames,
     completedMatches: completedCount,
-    isCompleted: matchesReached,
+    isCompleted,
     last2MatchesStatsComplete: statsCheck.allComplete,
     missingStatsPlayers: statsCheck.missingPlayerIds,
     inviteCode: season.inviteCode,
@@ -357,12 +367,19 @@ export const checkLeagueCompletion = async (
       completedCount = completedCountBySeason.get(String(season.id)) || 0;
 
       if (completedCount >= maxGames) {
-        statsCheck = await checkLastNMatchesStatsComplete(season.id, 2);
+        statsCheck = await checkLastNMatchesStatsComplete(season.id, 1);
       }
     }
 
     const matchesReached = maxGames > 0 && completedCount >= maxGames;
-    const isCompleted = matchesReached;
+    const isCompleted = matchesReached && statsCheck.allComplete;
+
+    if (isCompleted && season.isActive) {
+      season.isActive = false;
+      if (!season.endDate) season.endDate = new Date();
+      await season.save();
+      console.log(`🔒 Season "${season.name}" (ID: ${season.id}) automatically marked INACTIVE because completed matches (${completedCount}/${maxGames}) reached maximum limit and all player stats were submitted.`);
+    }
 
     if (season.isActive && isCompleted) {
       activeSeasonCompleted = true;
@@ -475,6 +492,15 @@ export const checkAndCompleteLeagueAfterMatch = async (matchId: string): Promise
 
   if (seasonInfo.isCompleted) {
     console.log(`Season "${seasonInfo.seasonName}" completed! (${seasonInfo.completedMatches}/${seasonInfo.maxGames} matches)`);
+
+    const seasonRecord = await Season.findByPk(match.seasonId);
+    if (seasonRecord && seasonRecord.isActive) {
+      seasonRecord.isActive = false;
+      if (!seasonRecord.endDate) seasonRecord.endDate = new Date();
+      await seasonRecord.save();
+      seasonInfo.isActive = false;
+      console.log(`🔒 Season "${seasonRecord.name}" (ID: ${seasonRecord.id}) automatically marked INACTIVE.`);
+    }
 
     try {
       const league = await League.findByPk(match.leagueId, {

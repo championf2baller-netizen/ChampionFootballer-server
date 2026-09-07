@@ -1099,6 +1099,26 @@ export const updateSeason = async (ctx: Context) => {
       }
     }
 
+    // Auto-deactivate if maxGames limit is reached
+    const effectiveMaxGames = Number(seasonInTx.maxGames ?? 0);
+    if (effectiveMaxGames > 0 && seasonInTx.isActive) {
+      const completedCount = await Match.count({
+        where: {
+          seasonId: seasonInTx.id,
+          status: { [Op.in]: ['RESULT_PUBLISHED', 'RESULT_UPLOADED'] },
+          archived: { [Op.ne]: true },
+          deleted: { [Op.ne]: true },
+        },
+        transaction: tx,
+      });
+
+      if (completedCount >= effectiveMaxGames) {
+        seasonInTx.isActive = false;
+        if (!seasonInTx.endDate) seasonInTx.endDate = new Date();
+        console.log(`🔒 [updateSeason] Season "${seasonInTx.name}" automatically marked INACTIVE because completed matches (${completedCount}/${effectiveMaxGames}) reached maximum limit.`);
+      }
+    }
+
     if (seasonInTx.isActive === true) {
       await Season.update(
         { isActive: false },
