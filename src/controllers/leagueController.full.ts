@@ -3628,6 +3628,44 @@ export const updateLeagueStatus = async (ctx: Context) => {
       return;
     }
 
+    if (updateData.active === false) {
+      const activeSeason = await Season.findOne({
+        where: { leagueId: id, isActive: true, deleted: false },
+        order: [['seasonNumber', 'DESC']]
+      });
+      if (activeSeason) {
+        updateData.lastActiveSeasonId = activeSeason.id;
+        console.log(`💾 Remembered active season "${activeSeason.name}" (${activeSeason.id}) for league "${league.name}"`);
+      }
+      await Season.update(
+        { isActive: false },
+        { where: { leagueId: id, isActive: true, deleted: false } }
+      );
+    } else if (updateData.active === true) {
+      let targetSeasonId = (league as any).lastActiveSeasonId || updateData.lastActiveSeasonId;
+      let targetSeason = targetSeasonId
+        ? await Season.findByPk(targetSeasonId)
+        : null;
+
+      if (!targetSeason || String(targetSeason.leagueId) !== String(id) || (targetSeason as any).deleted) {
+        targetSeason = await Season.findOne({
+          where: { leagueId: id, deleted: false },
+          order: [['seasonNumber', 'DESC']]
+        });
+      }
+
+      if (targetSeason) {
+        await Season.update(
+          { isActive: false },
+          { where: { leagueId: id, deleted: false } }
+        );
+        targetSeason.isActive = true;
+        (targetSeason as any).archived = false;
+        await targetSeason.save();
+        console.log(`🟢 Restored season "${targetSeason.name}" (${targetSeason.id}) to ACTIVE for live league "${league.name}"`);
+      }
+    }
+
     await league.update(updateData);
 
     cache.clearPattern(`user_leagues_`);

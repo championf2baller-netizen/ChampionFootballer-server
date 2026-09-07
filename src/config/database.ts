@@ -1,4 +1,4 @@
-﻿import { Sequelize, QueryTypes } from 'sequelize';
+import { Sequelize, QueryTypes } from 'sequelize';
 import { QueryInterface, DataTypes } from 'sequelize';
 import { DATABASE_URL } from './env';
 
@@ -255,6 +255,20 @@ async function ensureMatchDeletedColumn(): Promise<void> {
   }
 }
 
+async function ensureLeagueLastActiveSeasonIdColumn(): Promise<void> {
+  try {
+    const [results] = await sequelize.query(
+      `SELECT column_name FROM information_schema.columns WHERE table_name = 'Leagues' AND column_name = 'lastActiveSeasonId'`
+    );
+    if (!Array.isArray(results) || results.length === 0) {
+      await sequelize.query(`ALTER TABLE "Leagues" ADD COLUMN "lastActiveSeasonId" VARCHAR(255)`);
+      console.log('✅ Added "lastActiveSeasonId" column to Leagues table');
+    }
+  } catch (err) {
+    console.warn('⚠️ ensureLeagueLastActiveSeasonIdColumn skipped:', (err as any).message);
+  }
+}
+
 async function ensureSeasonNumberUniqueIndex(): Promise<void> {
   try {
     // Drop any old unique constraints on ("leagueId","seasonNumber"), whatever their names are.
@@ -341,6 +355,7 @@ export async function initializeDatabase() {
     await ensureSeasonDeletedColumn();
     await ensureSeasonInviteCodeColumn();
     await ensureMatchDeletedColumn();
+    await ensureLeagueLastActiveSeasonIdColumn();
     await ensureSeasonNumberUniqueIndex();
 
     // Ensure DB NOTIFY/LISTEN infrastructure and triggers (idempotent)
