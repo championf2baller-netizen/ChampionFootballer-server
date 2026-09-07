@@ -1133,7 +1133,7 @@ export const updateMatchNote = async (ctx: Context) => {
       return;
     }
 
-    await match.update({ note: note || null } as any);
+    await match.update({ notes: note || null } as any);
 
     // Invalidate match caches
     try {
@@ -1989,6 +1989,8 @@ export const getMatchById = async (ctx: Context) => {
         awayCaptainConfirmed: (match as any).awayCaptainConfirmed ?? false,
         homeWinPct,
         awayWinPct,
+        notes: (match as any).notes || null,
+        notificationMessage: (match as any).notes || null,
         status: match.status,
         league: (match as any).league,
         homeTeamUsers: (match as any).homeTeamUsers,

@@ -1716,6 +1716,8 @@ export const getLeagueMatch = async (ctx: Context) => {
         awayCaptainId: match.awayCaptainId,
         homeWinPct,
         awayWinPct,
+        notes: (match as any).notes || null,
+        notificationMessage: (match as any).notes || null,
         status: normalizeStatus(match.status),
         league: (match as any).league,
         homeTeamUsers: (match as any).homeTeamUsers || [],
@@ -4964,7 +4966,10 @@ export const updateMatchInLeague = async (ctx: Context) => {
     if (start) updateData.start = new Date(start);
     if (end) updateData.end = new Date(end);
     if (location !== undefined) updateData.location = location;
-    if (notes !== undefined) updateData.notes = normalizedNotes;
+    const effectiveNotes = (normalizedNotificationMessage && normalizedNotificationMessage.length > 0)
+      ? normalizedNotificationMessage
+      : (notes !== undefined ? normalizedNotes : undefined);
+    if (effectiveNotes !== undefined) updateData.notes = effectiveNotes;
     if (homeTeamImage) updateData.homeTeamImage = homeTeamImage;
     if (awayTeamImage) updateData.awayTeamImage = awayTeamImage;
     if (homeCaptainId !== undefined) updateData.homeCaptainId = homeCaptainId || null;
@@ -5102,6 +5107,7 @@ export const updateMatchInLeague = async (ctx: Context) => {
         homeTeamImage: (match as any).homeTeamImage,
         awayTeamImage: (match as any).awayTeamImage,
         notes: (match as any).notes,
+        notificationMessage: (match as any).notes,
         status: match.status
       },
       message: notificationsSent > 0 ? `Match updated & notification sent to ${notificationsSent} players` : 'Match updated successfully',
