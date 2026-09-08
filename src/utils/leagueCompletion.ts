@@ -303,13 +303,7 @@ export const isSeasonCompleted = async (seasonId: string): Promise<SeasonComplet
 
   const isCompleted = matchesReached && statsCheck.allComplete;
 
-  // Automatically mark season as inactive ONLY when max matches limit is reached AND all stats for last match are submitted
-  if (isCompleted && season.isActive) {
-    season.isActive = false;
-    if (!season.endDate) season.endDate = new Date();
-    await season.save();
-    console.log(`🔒 Season "${season.name}" (ID: ${season.id}) automatically marked INACTIVE because completed matches (${completedCount}/${maxGames}) reached maximum limit and all player stats were submitted.`);
-  }
+
 
   return {
     seasonId: season.id,
@@ -374,12 +368,7 @@ export const checkLeagueCompletion = async (
     const matchesReached = maxGames > 0 && completedCount >= maxGames;
     const isCompleted = matchesReached && statsCheck.allComplete;
 
-    if (isCompleted && season.isActive) {
-      season.isActive = false;
-      if (!season.endDate) season.endDate = new Date();
-      await season.save();
-      console.log(`🔒 Season "${season.name}" (ID: ${season.id}) automatically marked INACTIVE because completed matches (${completedCount}/${maxGames}) reached maximum limit and all player stats were submitted.`);
-    }
+
 
     if (season.isActive && isCompleted) {
       activeSeasonCompleted = true;

@@ -1506,19 +1506,6 @@ export const getLeagueMatches = async (ctx: Context) => {
       return;
     }
 
-    const memberSeasonIds = seasons
-      .filter((season: any) => {
-        const seasonPlayers = season.players || [];
-        return seasonPlayers.some((p: any) => String(p.id) === userId);
-      })
-      .map((season: any) => String(season.id));
-
-    if (!isAdmin && requestedSeasonId && !memberSeasonIds.includes(requestedSeasonId)) {
-      ctx.status = 403;
-      ctx.body = { success: false, message: 'Access denied for requested season' };
-      return;
-    }
-
     const whereClause: Record<string, unknown> = { leagueId: id };
     if (!isSuperAdmin) {
       whereClause.deleted = false;
@@ -1527,31 +1514,8 @@ export const getLeagueMatches = async (ctx: Context) => {
       }
     }
 
-
     if (requestedSeasonId) {
       whereClause.seasonId = requestedSeasonId;
-    } else if (!isAdmin) {
-      // Member can only see matches for seasons where they are enrolled.
-      if (memberSeasonIds.length === 0) {
-        ctx.body = {
-          success: true,
-          page: 1,
-          limit: 0,
-          total: 0,
-          totalPages: 0,
-          matches: [],
-          leagueMatches: [],
-          league: {
-            id: league.id,
-            name: league.name,
-            active: (league as any).active,
-            archived: Boolean((league as any).archived),
-            isAdmin
-          }
-        };
-        return;
-      }
-      whereClause.seasonId = { [Op.in]: memberSeasonIds };
     }
 
     const matches = await Match.findAll({
@@ -2390,70 +2354,19 @@ export const getLeagueById = async (ctx: Context) => {
       ctx.body = { success: false, message: 'Invalid seasonId for this league' };
       return;
     }
-    let userSeasonId: string | null = null;
+    const formattedSeasons = seasons
+      .sort((a: any, b: any) => (b.seasonNumber || 0) - (a.seasonNumber || 0))
+      .map((season: any) => ({
+        ...season.toJSON(),
+        members: season.players || []
+      }));
+
+    const currentSeason = requestedSeasonId
+      ? (formattedSeasons.find((s: any) => String(s.id) === requestedSeasonId) || formattedSeasons.find((s: any) => s.isActive) || formattedSeasons[0] || null)
+      : (formattedSeasons.find((s: any) => s.isActive) || formattedSeasons[0] || null);
 
     // Fast path for callers that only need league metadata (name/admin/members/seasons).
-    // Skips heavy match/vote/availability queries.
     if (!includeMatches) {
-      if (isAdmin) {
-        const adminSeasons = requestedSeasonId
-          ? seasons.filter((s: any) => String(s.id) === requestedSeasonId)
-          : seasons;
-        const formattedSeasons = adminSeasons.map((season: any) => ({
-          ...season.toJSON(),
-          members: season.players || []
-        }));
-        const currentSeason = formattedSeasons.find((s: any) => s.isActive) || (formattedSeasons[0] || null);
-
-        ctx.body = {
-          success: true,
-          league: {
-            id: league.id,
-            name: league.name,
-            inviteCode: (currentSeason as any)?.inviteCode || league.inviteCode,
-            active: league.active,
-            archived: Boolean((league as any).archived),
-            image: (league as any).image,
-            maxGames: league.maxGames,
-            createdAt: league.createdAt,
-            updatedAt: league.updatedAt,
-            members: membersJson,
-            matches: [],
-            seasons: formattedSeasons,
-            currentSeason,
-            administrators: adminsJson,
-            isAdmin
-          }
-        };
-        cache.set(cacheKey, ctx.body, LEAGUE_DETAIL_META_CACHE_TTL_SECONDS);
-        ctx.set('X-Cache', 'MISS');
-        return;
-      }
-
-      const memberSeasons = seasons.filter((season: any) => {
-        const seasonPlayers = season.players || [];
-        return seasonPlayers.some((p: any) => String(p.id) === String(userId));
-      });
-
-      if (requestedSeasonId && !memberSeasons.some((s: any) => String(s.id) === requestedSeasonId)) {
-        ctx.status = 403;
-        ctx.body = { success: false, message: 'Access denied for requested season' };
-        return;
-      }
-
-      const visibleSeasons = requestedSeasonId
-        ? memberSeasons.filter((s: any) => String(s.id) === requestedSeasonId)
-        : memberSeasons;
-
-      const formattedSeasons = [...visibleSeasons]
-        .sort((a: any, b: any) => (b.seasonNumber || 0) - (a.seasonNumber || 0))
-        .map((season: any) => ({
-          ...season.toJSON(),
-          members: season.players || []
-        }));
-
-      const currentSeason = formattedSeasons[0] || null;
-
       ctx.body = {
         success: true,
         league: {
@@ -2479,263 +2392,15 @@ export const getLeagueById = async (ctx: Context) => {
       return;
     }
 
-    // If user is ADMIN - show ALL seasons and ALL matches (frontend will filter)
-    if (isAdmin) {
-      const activeSeason = seasons.find((s: any) => s.isActive);
-      userSeasonId = activeSeason?.id || (seasons.length > 0 ? seasons[0].id : null);
-
-      // Fetch ALL matches for ALL seasons (admin can switch between seasons in frontend)
-      const matches = await fetchMatchesWithLightRelations({
-        leagueId: id,
-        deleted: false,
-        ...(requestedSeasonId ? { seasonId: requestedSeasonId } : {})
-      });
-
-      console.log(`📊 [ADMIN] Fetching ALL matches for league ${id}: ${matches.length} matches`);
-
-      // Fetch availability data for all matches in this league
-      const matchIds = matches.map((m: any) => m.id);
-      const availabilityRecords = matchIds.length > 0
-        ? await MatchAvailability.findAll({
-          where: {
-            match_id: matchIds,
-            status: ['available', 'unavailable']
-          }
-        })
-        : [];
-
-      // Get all user IDs who responded (available or unavailable)
-      const respondedUserIds: string[] = Array.from(new Set<string>(availabilityRecords.map((a: any) => String(a.user_id))));
-      const availabilityUsersData = respondedUserIds.length > 0
-        ? await User.findAll({
-          where: { id: { [Op.in]: respondedUserIds } },
-          attributes: ['id', 'firstName', 'lastName', 'profilePicture']
-        })
-        : [];
-
-      // Create a map of userId -> user data
-      const userMap = new Map(availabilityUsersData.map((u: any) => [u.id, u.toJSON()]));
-
-      // Create maps for available and unavailable users per match
-      const matchAvailableMap: Record<string, any[]> = {};
-      const matchUnavailableMap: Record<string, any[]> = {};
-      availabilityRecords.forEach((a: any) => {
-        const userData = userMap.get(a.user_id);
-        if (userData) {
-          if (a.status === 'available') {
-            if (!matchAvailableMap[a.match_id]) matchAvailableMap[a.match_id] = [];
-            matchAvailableMap[a.match_id].push(userData);
-          } else if (a.status === 'unavailable') {
-            if (!matchUnavailableMap[a.match_id]) matchUnavailableMap[a.match_id] = [];
-            matchUnavailableMap[a.match_id].push(userData);
-          }
-        }
-      });
-
-      // Group matches by seasonId and assign seasonMatchNumber
-      const matchesBySeasonMap: Record<string, any[]> = {};
-      matches.forEach((match: any) => {
-        const seasonId = match.seasonId || 'no-season';
-        if (!matchesBySeasonMap[seasonId]) {
-          matchesBySeasonMap[seasonId] = [];
-        }
-        matchesBySeasonMap[seasonId].push(match);
-      });
-
-      // Sort matches within each season by date and assign seasonMatchNumber
-      const matchesWithNumbers: any[] = [];
-      Object.keys(matchesBySeasonMap).forEach(seasonId => {
-        const seasonMatches = matchesBySeasonMap[seasonId]
-          .sort((a: any, b: any) => {
-            const dateA = new Date(a.date || a.createdAt).getTime();
-            const dateB = new Date(b.date || b.createdAt).getTime();
-            return dateA - dateB; // Ascending order (oldest first)
-          })
-          .map((match: any, index: number) => {
-            const matchJson = typeof match.toJSON === 'function' ? match.toJSON() : { ...match };
-            const guests = Array.isArray(matchJson.guestPlayers) ? matchJson.guestPlayers : [];
-
-            // Convert votes array to manOfTheMatchVotes object format
-            const manOfTheMatchVotes: Record<string, string> = {};
-            if (matchJson.votes && Array.isArray(matchJson.votes)) {
-              matchJson.votes.forEach((vote: any) => {
-                manOfTheMatchVotes[vote.voterId] = vote.votedForId;
-              });
-            }
-            delete matchJson.votes; // Remove votes array
-            delete matchJson.guestPlayers; // Normalize key for frontend
-
-            return {
-              ...matchJson,
-              seasonMatchNumber: index + 1, // Season-specific match number
-              matchNumber: index + 1, // Keep for backward compatibility
-              manOfTheMatchVotes,
-              guests,
-              availableUsers: matchAvailableMap[match.id] || [],
-              unavailableUsers: matchUnavailableMap[match.id] || []
-            };
-          });
-
-        matchesWithNumbers.push(...seasonMatches);
-      });
-
-      // Format seasons with members instead of players for frontend compatibility
-      const formattedSeasons = seasons.map((season: any) => ({
-        ...season.toJSON(),
-        members: season.players || [] // Rename 'players' to 'members' for frontend
-      }));
-
-      console.log(`📊 [ADMIN] Returning league data for ${league.name} (${formattedSeasons.length} seasons)`);
-
-      // Compute league/season completion status
-      const completionInfo = await checkLeagueCompletion(String(league.id));
-      const computedStatus = {
-        isCompleted: completionInfo.isCompleted,
-        isComplete: completionInfo.isCompleted,
-        locked: completionInfo.isCompleted,
-        activeSeasonCompleted: completionInfo.activeSeasonCompleted,
-        allStatsSubmitted: completionInfo.allStatsSubmitted,
-        totalCompletedMatches: completionInfo.totalCompletedMatches,
-        totalMaxGames: completionInfo.totalMaxGames,
-        maxGames: league.maxGames,
-        matchesPlayed: completionInfo.totalCompletedMatches,
-        gamesPlayed: completionInfo.totalCompletedMatches,
-        seasons: completionInfo.seasons.map(s => ({
-          seasonId: s.seasonId,
-          seasonNumber: s.seasonNumber,
-          seasonName: s.seasonName,
-          isActive: s.isActive,
-          maxGames: s.maxGames,
-          completedMatches: s.completedMatches,
-          isCompleted: s.isCompleted,
-          last2MatchesStatsComplete: s.last2MatchesStatsComplete,
-          missingStatsPlayers: s.missingStatsPlayers,
-        })),
-        missing: completionInfo.missing,
-      };
-      const lifecycle = deriveLeagueLifecycle(
-        Boolean(league.active),
-        Boolean((league as any).archived),
-        completionInfo.isCompleted,
-        completionInfo.isCompleted
-      );
-
-      ctx.body = {
-        success: true,
-        league: {
-          id: league.id,
-          name: league.name,
-          inviteCode: ((activeSeason || (seasons.length > 0 ? seasons[0] : null)) as any)?.inviteCode || league.inviteCode,
-          active: league.active,
-          archived: Boolean((league as any).archived),
-          image: (league as any).image,
-          maxGames: league.maxGames,
-          createdAt: league.createdAt,
-          updatedAt: league.updatedAt,
-          status: lifecycle.status,
-          isComplete: lifecycle.isComplete,
-          isCompleted: lifecycle.isCompleted,
-          isLocked: lifecycle.isLocked,
-          members: membersJson,
-          matches: matchesWithNumbers,
-          seasons: formattedSeasons, // Admin sees ALL seasons with members
-          currentSeason: activeSeason || (seasons.length > 0 ? seasons[0] : null), // Admin's current = active season
-          administrators: adminsJson,
-          isAdmin,
-          computedStatus
-        }
-      };
-      cache.set(cacheKey, ctx.body, LEAGUE_DETAIL_WITH_MATCHES_CACHE_TTL_SECONDS);
-      ctx.set('X-Cache', 'MISS');
-      return;
-    }
-
-    // For non-admin members - find their LATEST/HIGHEST season
-    // Sort seasons by seasonNumber DESC to find highest first
-    const sortedSeasons = [...seasons].sort((a: any, b: any) => (b.seasonNumber || 0) - (a.seasonNumber || 0));
-
-    // Find user's highest season number they are a member of
-    for (const season of sortedSeasons) {
-      const seasonPlayers = season.players || [];
-      if (seasonPlayers.some((p: any) => String(p.id) === String(userId))) {
-        userSeasonId = season.id;
-        console.log(`📌 User ${userId} found in season ${season.seasonNumber} (id: ${season.id})`);
-        break;
-      }
-    }
-
-    // If user is not in any season, check if they declined the active season
-    if (!userSeasonId) {
-      const Notification = (await importWithFallback('../models/Notification.js')).default as any;
-      const activeSeason = seasons.find((s: any) => s.isActive);
-
-      if (activeSeason) {
-        const declinedNotification = await Notification.findOne({
-          where: {
-            user_id: userId,
-            type: 'NEW_SEASON',
-            meta: {
-              seasonId: activeSeason.id,
-              actionTaken: 'declined'
-            }
-          }
-        });
-
-        // User hasn't joined the new season yet (either declined or no response)
-        // Show them the previous season
-        const previousSeason = seasons.find((s: any) =>
-          s.seasonNumber === activeSeason.seasonNumber - 1
-        );
-        if (previousSeason) {
-          userSeasonId = previousSeason.id;
-        }
-      }
-    }
-
-    // Fetch ALL matches for seasons user is a member of (frontend will filter by selected season)
-
-    // Get all season IDs user is a member of
-    const userSeasonIds = seasons
-      .filter((s: any) => {
-        const seasonPlayers = s.players || [];
-        return seasonPlayers.some((p: any) => String(p.id) === String(userId));
-      })
-      .map((s: any) => s.id);
-
-    const selectedMemberSeasonId =
-      requestedSeasonId && userSeasonIds.some((sid: string) => String(sid) === requestedSeasonId)
-        ? requestedSeasonId
-        : null;
-
-    if (requestedSeasonId && !selectedMemberSeasonId) {
-      ctx.status = 403;
-      ctx.body = { success: false, message: 'Access denied for requested season' };
-      return;
-    }
-
-    if (selectedMemberSeasonId) {
-      userSeasonId = selectedMemberSeasonId;
-    }
-
-    console.log(`📊 [MEMBER] User ${userId} is in seasons:`, userSeasonIds);
-
-    const matchWhere: any = {
+    // Fetch matches for requested season or all non-deleted seasons of the league
+    const matches = await fetchMatchesWithLightRelations({
       leagueId: id,
       deleted: false,
-    };
-    if (selectedMemberSeasonId) {
-      matchWhere.seasonId = selectedMemberSeasonId;
-    } else if (userSeasonIds.length > 0) {
-      matchWhere.seasonId = userSeasonIds; // Fetch matches for all user's seasons
-    } else {
-      matchWhere.id = { [Op.is]: null };
-    }
+      ...(requestedSeasonId ? { seasonId: requestedSeasonId } : {})
+    });
 
-    const matches = await fetchMatchesWithLightRelations(matchWhere);
+    console.log(`📊 [getLeagueById] Fetching matches for league ${id} (user: ${userId}, isAdmin: ${isAdmin}): ${matches.length} matches`);
 
-    console.log(`📊 [MEMBER] Fetching matches for user's seasons: ${matches.length} matches`);
-
-    // Fetch availability data for all matches
     const matchIds = matches.map((m: any) => m.id);
     const availabilityRecords = matchIds.length > 0
       ? await MatchAvailability.findAll({
@@ -2746,7 +2411,6 @@ export const getLeagueById = async (ctx: Context) => {
       })
       : [];
 
-    // Get all user IDs who responded (available or unavailable)
     const respondedUserIds: string[] = Array.from(new Set<string>(availabilityRecords.map((a: any) => String(a.user_id))));
     const availabilityUsersData = respondedUserIds.length > 0
       ? await User.findAll({
@@ -2755,10 +2419,8 @@ export const getLeagueById = async (ctx: Context) => {
       })
       : [];
 
-    // Create a map of userId -> user data
     const userMap = new Map(availabilityUsersData.map((u: any) => [u.id, u.toJSON()]));
 
-    // Create maps for available and unavailable users per match
     const matchAvailableMap: Record<string, any[]> = {};
     const matchUnavailableMap: Record<string, any[]> = {};
     availabilityRecords.forEach((a: any) => {
@@ -2774,7 +2436,6 @@ export const getLeagueById = async (ctx: Context) => {
       }
     });
 
-    // Group matches by seasonId and assign seasonMatchNumber
     const matchesBySeasonMap: Record<string, any[]> = {};
     matches.forEach((match: any) => {
       const seasonId = match.seasonId || 'no-season';
@@ -2784,33 +2445,31 @@ export const getLeagueById = async (ctx: Context) => {
       matchesBySeasonMap[seasonId].push(match);
     });
 
-    // Sort matches within each season by date and assign seasonMatchNumber
     const matchesWithNumbers: any[] = [];
     Object.keys(matchesBySeasonMap).forEach(seasonId => {
       const seasonMatches = matchesBySeasonMap[seasonId]
         .sort((a: any, b: any) => {
           const dateA = new Date(a.date || a.createdAt).getTime();
           const dateB = new Date(b.date || b.createdAt).getTime();
-          return dateA - dateB; // Ascending order (oldest first)
+          return dateA - dateB;
         })
         .map((match: any, index: number) => {
           const matchJson = typeof match.toJSON === 'function' ? match.toJSON() : { ...match };
           const guests = Array.isArray(matchJson.guestPlayers) ? matchJson.guestPlayers : [];
 
-          // Convert votes array to manOfTheMatchVotes object format
           const manOfTheMatchVotes: Record<string, string> = {};
           if (matchJson.votes && Array.isArray(matchJson.votes)) {
             matchJson.votes.forEach((vote: any) => {
               manOfTheMatchVotes[vote.voterId] = vote.votedForId;
             });
           }
-          delete matchJson.votes; // Remove votes array
-          delete matchJson.guestPlayers; // Normalize key for frontend
+          delete matchJson.votes;
+          delete matchJson.guestPlayers;
 
           return {
             ...matchJson,
-            seasonMatchNumber: index + 1, // Season-specific match number
-            matchNumber: index + 1, // Keep for backward compatibility
+            seasonMatchNumber: index + 1,
+            matchNumber: index + 1,
             manOfTheMatchVotes,
             guests,
             availableUsers: matchAvailableMap[match.id] || [],
@@ -2821,41 +2480,19 @@ export const getLeagueById = async (ctx: Context) => {
       matchesWithNumbers.push(...seasonMatches);
     });
 
-    // Filter seasons - only show seasons where user is a member, sorted by seasonNumber DESC
-    const filteredSeasons = seasons
-      .filter((season: any) => {
-        const seasonPlayers = season.players || [];
-        return seasonPlayers.some((p: any) => String(p.id) === String(userId));
-      })
-      .sort((a: any, b: any) => (b.seasonNumber || 0) - (a.seasonNumber || 0))
-      .map((season: any) => ({
-        ...season.toJSON(),
-        members: season.players || [] // Rename 'players' to 'members' for frontend
-      }));
-
-    // Get the user's current season (highest season they are in)
-    const userCurrentSeason = filteredSeasons.find((s: any) => s.id === userSeasonId) ||
-      (filteredSeasons.length > 0 ? filteredSeasons[0] : null);
-
-    console.log(`📊 [MEMBER] User ${userId} - filteredSeasons: ${filteredSeasons.map((s: any) => s.seasonNumber).join(', ')}, currentSeason: ${userCurrentSeason?.seasonNumber}`);
-    filteredSeasons.forEach((s: any) => {
-      console.log(`   - Season ${s.seasonNumber}: ${s.members?.length || 0} members`);
-    });
-
-    // Compute league/season completion status
-    const completionInfoMember = await checkLeagueCompletion(String(league.id));
-    const computedStatusMember = {
-      isCompleted: completionInfoMember.isCompleted,
-      isComplete: completionInfoMember.isCompleted,
-      locked: completionInfoMember.isCompleted,
-      activeSeasonCompleted: completionInfoMember.activeSeasonCompleted,
-      allStatsSubmitted: completionInfoMember.allStatsSubmitted,
-      totalCompletedMatches: completionInfoMember.totalCompletedMatches,
-      totalMaxGames: completionInfoMember.totalMaxGames,
+    const completionInfo = await checkLeagueCompletion(String(league.id));
+    const computedStatus = {
+      isCompleted: completionInfo.isCompleted,
+      isComplete: completionInfo.isCompleted,
+      locked: completionInfo.isCompleted,
+      activeSeasonCompleted: completionInfo.activeSeasonCompleted,
+      allStatsSubmitted: completionInfo.allStatsSubmitted,
+      totalCompletedMatches: completionInfo.totalCompletedMatches,
+      totalMaxGames: completionInfo.totalMaxGames,
       maxGames: league.maxGames,
-      matchesPlayed: completionInfoMember.totalCompletedMatches,
-      gamesPlayed: completionInfoMember.totalCompletedMatches,
-      seasons: completionInfoMember.seasons.map(s => ({
+      matchesPlayed: completionInfo.totalCompletedMatches,
+      gamesPlayed: completionInfo.totalCompletedMatches,
+      seasons: completionInfo.seasons.map(s => ({
         seasonId: s.seasonId,
         seasonNumber: s.seasonNumber,
         seasonName: s.seasonName,
@@ -2866,13 +2503,13 @@ export const getLeagueById = async (ctx: Context) => {
         last2MatchesStatsComplete: s.last2MatchesStatsComplete,
         missingStatsPlayers: s.missingStatsPlayers,
       })),
-      missing: completionInfoMember.missing,
+      missing: completionInfo.missing,
     };
     const lifecycle = deriveLeagueLifecycle(
       Boolean(league.active),
       Boolean((league as any).archived),
-      completionInfoMember.isCompleted,
-      completionInfoMember.isCompleted
+      completionInfo.isCompleted,
+      completionInfo.isCompleted
     );
 
     ctx.body = {
@@ -2880,7 +2517,7 @@ export const getLeagueById = async (ctx: Context) => {
       league: {
         id: league.id,
         name: league.name,
-        inviteCode: (userCurrentSeason as any)?.inviteCode || league.inviteCode,
+        inviteCode: (currentSeason as any)?.inviteCode || league.inviteCode,
         active: league.active,
         archived: Boolean((league as any).archived),
         image: (league as any).image,
@@ -2893,11 +2530,11 @@ export const getLeagueById = async (ctx: Context) => {
         isLocked: lifecycle.isLocked,
         members: membersJson,
         matches: matchesWithNumbers,
-        seasons: filteredSeasons, // Only show seasons user is member of
-        currentSeason: userCurrentSeason, // User's current season
+        seasons: formattedSeasons,
+        currentSeason,
         administrators: adminsJson,
         isAdmin,
-        computedStatus: computedStatusMember
+        computedStatus
       }
     };
     cache.set(cacheKey, ctx.body, LEAGUE_DETAIL_WITH_MATCHES_CACHE_TTL_SECONDS);
@@ -3642,27 +3279,32 @@ export const updateLeagueStatus = async (ctx: Context) => {
         { where: { leagueId: id, isActive: true, deleted: false } }
       );
     } else if (updateData.active === true) {
-      let targetSeasonId = (league as any).lastActiveSeasonId || updateData.lastActiveSeasonId;
-      let targetSeason = targetSeasonId
-        ? await Season.findByPk(targetSeasonId)
-        : null;
+      const existingActiveSeason = await Season.findOne({
+        where: { leagueId: id, isActive: true, deleted: false }
+      });
+      if (!existingActiveSeason) {
+        let targetSeasonId = (league as any).lastActiveSeasonId || updateData.lastActiveSeasonId;
+        let targetSeason = targetSeasonId
+          ? await Season.findByPk(targetSeasonId)
+          : null;
 
-      if (!targetSeason || String(targetSeason.leagueId) !== String(id) || (targetSeason as any).deleted) {
-        targetSeason = await Season.findOne({
-          where: { leagueId: id, deleted: false },
-          order: [['seasonNumber', 'DESC']]
-        });
-      }
+        if (!targetSeason || String(targetSeason.leagueId) !== String(id) || (targetSeason as any).deleted) {
+          targetSeason = await Season.findOne({
+            where: { leagueId: id, deleted: false },
+            order: [['seasonNumber', 'DESC']]
+          });
+        }
 
-      if (targetSeason) {
-        await Season.update(
-          { isActive: false },
-          { where: { leagueId: id, deleted: false } }
-        );
-        targetSeason.isActive = true;
-        (targetSeason as any).archived = false;
-        await targetSeason.save();
-        console.log(`🟢 Restored season "${targetSeason.name}" (${targetSeason.id}) to ACTIVE for live league "${league.name}"`);
+        if (targetSeason) {
+          await Season.update(
+            { isActive: false },
+            { where: { leagueId: id, deleted: false } }
+          );
+          targetSeason.isActive = true;
+          (targetSeason as any).archived = false;
+          await targetSeason.save();
+          console.log(`🟢 Restored season "${targetSeason.name}" (${targetSeason.id}) to ACTIVE for live league "${league.name}"`);
+        }
       }
     }
 
@@ -3833,11 +3475,21 @@ export const updateLeague = async (ctx: Context) => {
       if ('completedAt' in (league as any)) updateData.completedAt = null;
       if ('completedById' in (league as any)) updateData.completedById = null;
     } else {
-      // Handle boolean fields that may arrive as strings from FormData
       if (requestedActive !== undefined) updateData.active = requestedActive;
       if (requestedArchived !== undefined) updateData.archived = requestedArchived;
     }
     if (showPoints !== undefined) updateData.showPoints = showPoints === true || showPoints === 'true';
+
+    const seasonIsActiveParam = (ctx.request as any).body?.seasonIsActive;
+    const seasonActiveParam = (ctx.request as any).body?.seasonActive;
+    const isActivatingSeason = seasonIsActiveParam === true || seasonIsActiveParam === 'true' || seasonActiveParam === true || seasonActiveParam === 'true';
+
+    if (isActivatingSeason) {
+      updateData.active = true;
+      updateData.archived = false;
+      if ('isLocked' in (league as any)) updateData.isLocked = false;
+      if ('completedAt' in (league as any)) updateData.completedAt = null;
+    }
 
     // Handle league image upload or removal
     if ((ctx.request as any).file) {
@@ -3897,6 +3549,10 @@ export const updateLeague = async (ctx: Context) => {
         }
 
         if (season.isActive) {
+          await League.update(
+            { active: true, archived: false },
+            { where: { id: season.leagueId } }
+          );
           await Season.update(
             { isActive: false },
             {
@@ -3907,6 +3563,21 @@ export const updateLeague = async (ctx: Context) => {
               },
             }
           );
+        } else {
+          const anyOtherActive = await Season.findOne({
+            where: {
+              leagueId: season.leagueId,
+              id: { [Op.ne]: season.id },
+              isActive: true,
+              deleted: false,
+            }
+          });
+          if (!anyOtherActive) {
+            await League.update(
+              { active: false },
+              { where: { id: season.leagueId } }
+            );
+          }
         }
 
         await season.save();

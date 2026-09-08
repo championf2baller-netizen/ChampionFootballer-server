@@ -328,8 +328,23 @@ export const getAllSeasons = async (ctx: Context) => {
         };
       }
 
-      // User is not in this season - don't show it at all
-      return null;
+      return {
+        id: season.id,
+        seasonNumber: season.seasonNumber,
+        name: season.name,
+        inviteCode: (season as any).inviteCode || '',
+        isActive: season.isActive,
+        archived: Boolean((season as any).archived),
+        deleted: Boolean((season as any).deleted),
+        status: getSeasonStatus(season),
+        startDate: season.startDate,
+        endDate: season.endDate,
+        maxGames: season.maxGames,
+        showPoints: season.showPoints,
+        playerCount: players.length,
+        createdAt: season.createdAt,
+        isMember: false
+      };
     })
   );
 
@@ -1099,24 +1114,15 @@ export const updateSeason = async (ctx: Context) => {
       }
     }
 
-    // Auto-deactivate if maxGames limit is reached
-    const effectiveMaxGames = Number(seasonInTx.maxGames ?? 0);
-    if (effectiveMaxGames > 0 && seasonInTx.isActive) {
-      const completedCount = await Match.count({
-        where: {
-          seasonId: seasonInTx.id,
-          status: { [Op.in]: ['RESULT_PUBLISHED', 'RESULT_UPLOADED'] },
-          archived: { [Op.ne]: true },
-          deleted: { [Op.ne]: true },
-        },
-        transaction: tx,
-      });
-
-      if (completedCount >= effectiveMaxGames) {
-        seasonInTx.isActive = false;
-        if (!seasonInTx.endDate) seasonInTx.endDate = new Date();
-        console.log(`🔒 [updateSeason] Season "${seasonInTx.name}" automatically marked INACTIVE because completed matches (${completedCount}/${effectiveMaxGames}) reached maximum limit.`);
-      }
+    // If admin explicitly set season to active, keep it active and make parent league LIVE
+    if (nextActive === true) {
+      seasonInTx.isActive = true;
+      (seasonInTx as any).archived = false;
+      await League.update(
+        { active: true, archived: false },
+        { where: { id: seasonInTx.leagueId }, transaction: tx }
+      );
+      console.log(`🟢 [updateSeason] Season "${seasonInTx.name}" explicitly set to ACTIVE by admin, parent league activated.`);
     }
 
     if (seasonInTx.isActive === true) {
@@ -1147,21 +1153,11 @@ export const updateSeason = async (ctx: Context) => {
       });
 
       if (!activeNonArchived) {
-        const replacement = await Season.findOne({
-          where: {
-            leagueId: seasonInTx.leagueId,
-            archived: false,
-            deleted: false,
-            id: { [Op.ne]: seasonInTx.id },
-          },
-          order: [['seasonNumber', 'DESC']],
-          transaction: tx,
-        });
-
-        if (replacement) {
-          replacement.isActive = true;
-          await replacement.save({ transaction: tx });
-        }
+        await League.update(
+          { active: false },
+          { where: { id: seasonInTx.leagueId }, transaction: tx }
+        );
+        console.log(`🔒 [updateSeason] No active seasons remain for league ${seasonInTx.leagueId}, parent league marked inactive.`);
       }
     }
 
