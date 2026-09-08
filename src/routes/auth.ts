@@ -221,8 +221,8 @@ router.post("/auth/register", none, async (ctx: Context) => {
     }
 
     // Validate gender
-    if (gender !== "male" && gender !== "female") {
-      ctx.throw(400, "Gender must be male or female");
+    if (gender !== "male" && gender !== "female" && gender !== "prefer not to say") {
+      ctx.throw(400, "Gender must be male, female, or prefer not to say");
     }
 
     // Validate phone country code
