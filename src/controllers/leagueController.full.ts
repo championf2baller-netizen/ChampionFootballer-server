@@ -3564,20 +3564,7 @@ export const updateLeague = async (ctx: Context) => {
             }
           );
         } else {
-          const anyOtherActive = await Season.findOne({
-            where: {
-              leagueId: season.leagueId,
-              id: { [Op.ne]: season.id },
-              isActive: true,
-              deleted: false,
-            }
-          });
-          if (!anyOtherActive) {
-            await League.update(
-              { active: false },
-              { where: { id: season.leagueId } }
-            );
-          }
+          console.log(`ℹ️ [updateLeague] Season deactivated for league ${season.leagueId}. Parent league status remains controlled manually.`);
         }
 
         await season.save();

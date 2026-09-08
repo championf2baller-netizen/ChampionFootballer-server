@@ -1153,11 +1153,7 @@ export const updateSeason = async (ctx: Context) => {
       });
 
       if (!activeNonArchived) {
-        await League.update(
-          { active: false },
-          { where: { id: seasonInTx.leagueId }, transaction: tx }
-        );
-        console.log(`🔒 [updateSeason] No active seasons remain for league ${seasonInTx.leagueId}, parent league marked inactive.`);
+        console.log(`ℹ️ [updateSeason] Season deactivated for league ${seasonInTx.leagueId}. Parent league status remains controlled manually.`);
       }
     }
 
