@@ -182,6 +182,7 @@ export const updateProfile = async (ctx: Context) => {
   // Clear user cache
   cache.del(`auth_data_${userId}_ultra_fast`);
   cache.del(`auth_status_${userId}_fast`);
+  try { cache.clearPattern('dreamteam'); } catch {}
 
   // Return all non-sensitive user fields
   const updatedUser = user.toJSON() as any;

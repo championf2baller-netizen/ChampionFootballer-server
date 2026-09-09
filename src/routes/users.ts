@@ -115,7 +115,7 @@ router.patch("/:id", required, async (ctx) => {
     profilePicture: pictureKey,
     position,
     positionType: position,
-    xp: 0 // Will be updated from database
+    xp: 0
   };
 
   // Update players cache
@@ -123,9 +123,10 @@ router.patch("/:id", required, async (ctx) => {
   
   // Clear any user-specific caches
   cache.clearPattern(`user_leagues_${ctx.params.id}`);
+  try { cache.clearPattern('dreamteam'); } catch {}
 
   ctx.response.status = 200;
-})
+});
 
 router.delete("/:id", required, async (ctx) => {
   if (!ctx.session || !ctx.session.userId) ctx.throw(401, "Unauthorized");
@@ -144,7 +145,7 @@ router.delete("/:id", required, async (ctx) => {
   cache.clearPattern(`user_leagues_${ctx.params.id}`);
 
   ctx.response.status = 200;
-})
+});
 
 // --- Global Stats API ---
 // GET /users/me/global-stats - get user's overall stats across all leagues

@@ -4,9 +4,19 @@ import cache from '../utils/cache';
 
 const { User, Match, MatchStatistics, Vote } = models;
 
+export const clearDreamTeamCache = () => {
+  try {
+    cache.clearPattern('dreamteam');
+  } catch {}
+};
+
 export const getDreamTeam = async (ctx: Context) => {
   const leagueId = ctx.query.leagueId as string | undefined;
   const seasonId = ctx.query.seasonId as string | undefined;
+  const forceRefresh =
+    ctx.query.refresh === '1' ||
+    ctx.query.nocache === '1' ||
+    typeof ctx.query._t !== 'undefined';
   
   if (!leagueId) {
     ctx.throw(400, 'leagueId is required');
@@ -14,7 +24,7 @@ export const getDreamTeam = async (ctx: Context) => {
   }
 
   const cacheKey = `dreamteam_${leagueId}_${seasonId || 'all'}`;
-  const cached = cache.get(cacheKey);
+  const cached = forceRefresh ? undefined : cache.get(cacheKey);
   if (cached) { 
     ctx.body = cached; 
     return; 
@@ -79,7 +89,7 @@ export const getDreamTeam = async (ctx: Context) => {
           midfielders: [],
           forwards: []
         },
-        formation: '1-1-1-2'
+        formation: '2-2-1'
       };
       cache.set(cacheKey, result, 3600);
       ctx.body = result;
@@ -130,7 +140,7 @@ export const getDreamTeam = async (ctx: Context) => {
       matchesMap.set(m.id, m);
     });
 
-    // Calculate player scores
+    // Calculate player scores using official XP awarded in match statistics
     const playersWithScores = users.map((user: any) => {
       const stats = statsByUser.get(user.id) || [];
       const userVotes = votesByUser.get(user.id) || [];
@@ -138,14 +148,16 @@ export const getDreamTeam = async (ctx: Context) => {
       let totalGoals = 0;
       let totalAssists = 0;
       let totalRating = 0;
+      let totalXP = 0;
       let wins = 0;
       let matchesPlayed = stats.length;
       let motm = userVotes.length;
 
       stats.forEach((stat: any) => {
-        totalGoals += stat.goals || 0;
-        totalAssists += stat.assists || 0;
-        totalRating += stat.rating || 0;
+        totalGoals += Number(stat.goals || 0);
+        totalAssists += Number(stat.assists || 0);
+        totalRating += Number(stat.rating || 0);
+        totalXP += Number(stat.xp_awarded ?? stat.xpAwarded ?? 0);
 
         const match = matchesMap.get(stat.match_id);
         if (match) {
@@ -160,7 +172,11 @@ export const getDreamTeam = async (ctx: Context) => {
       });
 
       const avgRating = matchesPlayed > 0 ? totalRating / matchesPlayed : 0;
-      const score = (totalGoals * 3) + (totalAssists * 2) + (avgRating * 0.5) + (wins * 1) + (motm * 5);
+
+      // Primary score metric is official total XP points awarded in this league/season.
+      // Fallback score formula is used if totalXP is 0 for legacy records.
+      const fallbackScore = (totalGoals * 3) + (totalAssists * 2) + (avgRating * 0.5) + (wins * 1) + (motm * 5);
+      const score = totalXP > 0 ? totalXP : parseFloat(fallbackScore.toFixed(2));
 
       return {
         id: user.id,
@@ -170,38 +186,119 @@ export const getDreamTeam = async (ctx: Context) => {
         position: user.position,
         positionType: user.positionType,
         profilePicture: user.profilePicture,
+        xp: totalXP,
         stats: {
           goals: totalGoals,
           assists: totalAssists,
           rating: parseFloat(avgRating.toFixed(1)),
           matches: matchesPlayed,
           wins,
-          motm
+          motm,
+          xp: totalXP
         },
         score: parseFloat(score.toFixed(2))
       };
     });
 
-    // Group by position type - 1-1-1-2 formation for 5-a-side (1 GK, 1 defender, 1 midfielder, 2 forwards)
-    // Also check the position field as fallback if positionType is not set
-    const getPositionType = (player: any) => {
-      if (player.positionType) return player.positionType;
-      
-      // Fallback: check position field for keywords
-      const pos = (player.position || '').toLowerCase();
-      if (pos.includes('goalkeeper') || pos.includes('gk')) return 'Goalkeeper';
-      if (pos.includes('back') || pos.includes('defender') || pos.includes('cb') || pos.includes('rb') || pos.includes('lb')) return 'Defender';
-      if (pos.includes('midfield') || pos.includes('cm') || pos.includes('dm') || pos.includes('am') || pos.includes('cdm') || pos.includes('cam')) return 'Midfielder';
-      if (pos.includes('forward') || pos.includes('striker') || pos.includes('winger') || pos.includes('st') || pos.includes('cf') || pos.includes('lw') || pos.includes('rw')) return 'Forward';
-      
-      return 'Forward'; // Default to forward if unknown
+    // Normalize position types accurately. Returns null if player has NO valid position set.
+    const getPositionType = (player: any): 'Goalkeeper' | 'Defender' | 'Midfielder' | 'Forward' | null => {
+      const rawType = String(player.positionType || '').trim().toLowerCase();
+      const rawPos = String(player.position || '').trim().toLowerCase();
+      const combined = `${rawType} ${rawPos}`.trim();
+
+      // If player has NO position or positionType configured, return null (DO NOT default to 'Forward')
+      if (!combined) return null;
+
+      if (
+        combined.includes('goalkeeper') ||
+        combined.includes('gk') ||
+        combined.includes('keeper') ||
+        rawType === 'goalkeeper' ||
+        rawType === 'goalkeepers'
+      ) {
+        return 'Goalkeeper';
+      }
+
+      if (
+        combined.includes('defender') ||
+        combined.includes('defence') ||
+        combined.includes('defense') ||
+        combined.includes('back') ||
+        combined.includes('cb') ||
+        combined.includes('lb') ||
+        combined.includes('rb') ||
+        combined.includes('lwb') ||
+        combined.includes('rwb') ||
+        rawType.startsWith('def')
+      ) {
+        return 'Defender';
+      }
+
+      if (
+        combined.includes('midfield') ||
+        combined.includes('midfielder') ||
+        combined.includes('cdm') ||
+        combined.includes('cam') ||
+        combined.includes('cm') ||
+        combined.includes('lm') ||
+        combined.includes('rm') ||
+        rawType.startsWith('mid')
+      ) {
+        return 'Midfielder';
+      }
+
+      if (
+        combined.includes('forward') ||
+        combined.includes('striker') ||
+        combined.includes('winger') ||
+        combined.includes('attacker') ||
+        combined.includes('st') ||
+        combined.includes('cf') ||
+        combined.includes('lw') ||
+        combined.includes('rw') ||
+        combined.includes('fwd') ||
+        rawType.startsWith('for') ||
+        rawType.startsWith('st')
+      ) {
+        return 'Forward';
+      }
+
+      return null;
     };
 
+    // Filter out players who do NOT have a valid position configured
+    const eligiblePlayers = playersWithScores.filter(p => getPositionType(p) !== null);
+
+    const defenderSort = (a: any, b: any) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if (b.xp !== a.xp) return b.xp - a.xp;
+      if (b.stats.rating !== a.stats.rating) return b.stats.rating - a.stats.rating;
+      if (b.stats.wins !== a.stats.wins) return b.stats.wins - a.stats.wins;
+      return String(a.id).localeCompare(String(b.id));
+    };
+
+    const midfielderSort = (a: any, b: any) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if (b.stats.assists !== a.stats.assists) return b.stats.assists - a.stats.assists;
+      if (b.xp !== a.xp) return b.xp - a.xp;
+      if (b.stats.goals !== a.stats.goals) return b.stats.goals - a.stats.goals;
+      return String(a.id).localeCompare(String(b.id));
+    };
+
+    const forwardSort = (a: any, b: any) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if (b.stats.goals !== a.stats.goals) return b.stats.goals - a.stats.goals;
+      if (b.xp !== a.xp) return b.xp - a.xp;
+      if (b.stats.assists !== a.stats.assists) return b.stats.assists - a.stats.assists;
+      return String(a.id).localeCompare(String(b.id));
+    };
+
+    // Client 5-a-side layout specs: 2 Best Defenders, 2 Best Midfielders, 1 Top Striker
     const positions = {
-      Goalkeeper: playersWithScores.filter(p => getPositionType(p) === 'Goalkeeper').sort((a, b) => b.score - a.score).slice(0, 1), // Top 1 goalkeeper
-      Defender: playersWithScores.filter(p => getPositionType(p) === 'Defender').sort((a, b) => b.score - a.score).slice(0, 1), // Top 1 defender
-      Midfielder: playersWithScores.filter(p => getPositionType(p) === 'Midfielder').sort((a, b) => b.score - a.score).slice(0, 1), // Top 1 midfielder
-      Forward: playersWithScores.filter(p => getPositionType(p) === 'Forward').sort((a, b) => b.score - a.score).slice(0, 2) // Top 2 forwards
+      Goalkeeper: eligiblePlayers.filter(p => getPositionType(p) === 'Goalkeeper').sort(defenderSort).slice(0, 1),
+      Defender: eligiblePlayers.filter(p => getPositionType(p) === 'Defender').sort(defenderSort).slice(0, 2),
+      Midfielder: eligiblePlayers.filter(p => getPositionType(p) === 'Midfielder').sort(midfielderSort).slice(0, 2),
+      Forward: eligiblePlayers.filter(p => getPositionType(p) === 'Forward').sort(forwardSort).slice(0, 1)
     };
 
     const result = {
@@ -212,7 +309,7 @@ export const getDreamTeam = async (ctx: Context) => {
         midfielders: positions.Midfielder,
         forwards: positions.Forward
       },
-      formation: '1-1-1-2' // 5-a-side: 1 GK, 1 DEF, 1 MID, 2 FWD
+      formation: '2-2-1'
     };
 
     cache.set(cacheKey, result, 3600);
