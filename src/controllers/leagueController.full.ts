@@ -493,8 +493,6 @@ const fetchMatchesWithLightRelations = async (matchWhere: any): Promise<any[]> =
   const matches = await Match.findAll({
     where: {
       ...matchWhere,
-      archived: { [Op.ne]: true },
-      deleted: { [Op.ne]: true },
     },
     order: [['createdAt', 'ASC']],
     raw: true,
@@ -2395,7 +2393,6 @@ export const getLeagueById = async (ctx: Context) => {
     // Fetch matches for requested season or all non-deleted seasons of the league
     const matches = await fetchMatchesWithLightRelations({
       leagueId: id,
-      deleted: false,
       ...(requestedSeasonId ? { seasonId: requestedSeasonId } : {})
     });
 
