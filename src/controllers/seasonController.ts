@@ -540,17 +540,30 @@ export const createNewSeason = async (ctx: Context) => {
         });
       }
 
-      // Numbering rule (updated):
-      // Always create the next season after the highest historical season number,
-      // even if some old seasons are archived/deleted.
-      const allSeasons = await Season.findAll({
-        where: { leagueId },
+      // Clean up any soft-deleted seasons with 0 matches so they don't block seasonNumber reuse
+      const emptyDeletedSeasons = await Season.findAll({
+        where: { leagueId, deleted: true },
+        transaction: tx,
+      });
+      for (const s of emptyDeletedSeasons) {
+        const mCount = await Match.count({
+          where: { leagueId: s.leagueId, seasonId: s.id },
+          transaction: tx,
+        });
+        if (mCount === 0) {
+          await s.destroy({ transaction: tx });
+        }
+      }
+
+      // Calculate maxSeasonNumber from non-deleted seasons
+      const activeOrArchivedSeasons = await Season.findAll({
+        where: { leagueId, deleted: false },
         attributes: ['seasonNumber'],
         transaction: tx,
       });
 
       let maxSeasonNumber = 0;
-      for (const s of allSeasons) {
+      for (const s of activeOrArchivedSeasons) {
         const n = Number((s as any).seasonNumber || 0);
         if (Number.isInteger(n) && n > maxSeasonNumber) {
           maxSeasonNumber = n;
@@ -1329,24 +1342,37 @@ export const permanentDeleteSeason = async (ctx: Context) => {
       return;
     }
 
-    (seasonInTx as any).deleted = true;
-    (seasonInTx as any).archived = true;
-    seasonInTx.isActive = false;
-    if (!seasonInTx.endDate) {
-      seasonInTx.endDate = new Date();
-    }
-    await seasonInTx.save({ transaction: tx });
+    const matchCount = await Match.count({
+      where: {
+        leagueId: seasonInTx.leagueId,
+        seasonId: seasonInTx.id,
+      },
+      transaction: tx,
+    });
 
-    await Match.update(
-      { archived: true, deleted: true },
-      {
-        where: {
-          leagueId: seasonInTx.leagueId,
-          seasonId: seasonInTx.id,
-        },
-        transaction: tx,
+    if (matchCount === 0) {
+      // If the season has no matches, destroy it completely so the season name/number can be reused
+      await seasonInTx.destroy({ transaction: tx });
+    } else {
+      (seasonInTx as any).deleted = true;
+      (seasonInTx as any).archived = true;
+      seasonInTx.isActive = false;
+      if (!seasonInTx.endDate) {
+        seasonInTx.endDate = new Date();
       }
-    );
+      await seasonInTx.save({ transaction: tx });
+
+      await Match.update(
+        { archived: true, deleted: true },
+        {
+          where: {
+            leagueId: seasonInTx.leagueId,
+            seasonId: seasonInTx.id,
+          },
+          transaction: tx,
+        }
+      );
+    }
 
     // After deletion, always keep latest remaining non-archived season as active.
     const replacement = await Season.findOne({
