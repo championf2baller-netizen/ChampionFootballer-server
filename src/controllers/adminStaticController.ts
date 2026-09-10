@@ -1788,7 +1788,7 @@ export const ensureDefaultsExist = async () => {
         { where: { key: ['player_career_heading'] } }
       );
 
-      // 3. Seed missing Static Content Items safely
+      // 3. Seed missing Static Content Items safely (Preserves admin-edited content)
       for (const item of DEFAULT_ITEMS) {
         try {
           const existing = await StaticContent.findOne({ where: { key: item.key } });
@@ -1801,14 +1801,10 @@ export const ensureDefaultsExist = async () => {
               existing.category = item.category;
               updated = true;
             }
-            if (item.category === 'rewards' || item.key.startsWith('reward_') || (item.key === 'terms_conditions' && existing.content.length < 500)) {
-              existing.title = item.title;
-              existing.content = item.content;
-              updated = true;
-            }
+            // Preserve admin edits: do NOT overwrite existing.title or existing.content if row already exists in DB
             if (updated) {
               await existing.save();
-              console.log(`🔄 Updated static content item '${item.key}'`);
+              console.log(`🔄 Updated static content category for item '${item.key}'`);
             }
           }
         } catch (itemErr) {
