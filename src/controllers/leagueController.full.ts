@@ -3263,46 +3263,16 @@ export const updateLeagueStatus = async (ctx: Context) => {
     }
 
     if (updateData.active === false) {
-      const activeSeason = await Season.findOne({
-        where: { leagueId: id, isActive: true, deleted: false },
-        order: [['seasonNumber', 'DESC']]
-      });
-      if (activeSeason) {
-        updateData.lastActiveSeasonId = activeSeason.id;
-        console.log(`💾 Remembered active season "${activeSeason.name}" (${activeSeason.id}) for league "${league.name}"`);
-      }
+      // Deactivate ALL seasons of this league when league is completed/inactive
       await Season.update(
         { isActive: false },
-        { where: { leagueId: id, isActive: true, deleted: false } }
+        { where: { leagueId: id, deleted: false } }
       );
+      console.log(`🔒 Deactivated all seasons for completed/inactive league "${league.name}"`);
     } else if (updateData.active === true) {
-      const existingActiveSeason = await Season.findOne({
-        where: { leagueId: id, isActive: true, deleted: false }
-      });
-      if (!existingActiveSeason) {
-        let targetSeasonId = (league as any).lastActiveSeasonId || updateData.lastActiveSeasonId;
-        let targetSeason = targetSeasonId
-          ? await Season.findByPk(targetSeasonId)
-          : null;
-
-        if (!targetSeason || String(targetSeason.leagueId) !== String(id) || (targetSeason as any).deleted) {
-          targetSeason = await Season.findOne({
-            where: { leagueId: id, deleted: false },
-            order: [['seasonNumber', 'DESC']]
-          });
-        }
-
-        if (targetSeason) {
-          await Season.update(
-            { isActive: false },
-            { where: { leagueId: id, deleted: false } }
-          );
-          targetSeason.isActive = true;
-          (targetSeason as any).archived = false;
-          await targetSeason.save();
-          console.log(`🟢 Restored season "${targetSeason.name}" (${targetSeason.id}) to ACTIVE for live league "${league.name}"`);
-        }
-      }
+      // When making a league live again, do NOT auto-activate any season.
+      // All seasons remain inactive (isActive = false).
+      console.log(`🟢 Marked league "${league.name}" live again (all seasons remain inactive)`);
     }
 
     await league.update(updateData);
@@ -3457,14 +3427,17 @@ export const updateLeague = async (ctx: Context) => {
     const updateData: any = {};
     if (name) updateData.name = name;
     if (maxGames !== undefined) updateData.maxGames = Number(maxGames);
-    // Manual completed/live status support:
-    // completed => inactive but NOT archived
     if (completedStatusTokens.has(normalizedStatus)) {
       updateData.active = false;
       updateData.archived = false;
       if ('isLocked' in (league as any)) updateData.isLocked = true;
       if ('completedAt' in (league as any)) updateData.completedAt = new Date();
       if ('completedById' in (league as any)) updateData.completedById = String(userId);
+      await Season.update(
+        { isActive: false },
+        { where: { leagueId: id, deleted: false } }
+      );
+      console.log(`🔒 Deactivated all seasons for completed league "${league.name}"`);
     } else if (normalizedStatus === 'active' || normalizedStatus === 'live') {
       updateData.active = true;
       updateData.archived = false;
@@ -3474,6 +3447,12 @@ export const updateLeague = async (ctx: Context) => {
     } else {
       if (requestedActive !== undefined) updateData.active = requestedActive;
       if (requestedArchived !== undefined) updateData.archived = requestedArchived;
+      if (requestedActive === false) {
+        await Season.update(
+          { isActive: false },
+          { where: { leagueId: id, deleted: false } }
+        );
+      }
     }
     if (showPoints !== undefined) updateData.showPoints = showPoints === true || showPoints === 'true';
 
