@@ -82,6 +82,34 @@ const validateTeamUploadThresholds = (registeredPlayers: number, totalPlayers: n
 const isFinalizedMatchStatus = (status: unknown): boolean =>
   FINALIZED_MATCH_STATUSES.has(String(status || '').toUpperCase());
 
+const isResultMatchRecord = (m: any): boolean => {
+  const status = String(m?.status || '').toUpperCase();
+  if (['RESULT_PUBLISHED', 'RESULT_UPLOADED', 'COMPLETED', 'FINISHED', 'IN_PROGRESS', 'REVISION_REQUESTED'].includes(status)) {
+    return true;
+  }
+  if (m?.resultPublishedAt || m?.resultUploadedAt) return true;
+  return false;
+};
+
+const buildSeasonMatchNumberMap = async (leagueId: string, seasonId: string): Promise<Map<string, number>> => {
+  const allSeasonMatches = await Match.findAll({
+    where: { leagueId, seasonId },
+    attributes: ['id', 'date', 'createdAt', 'deleted', 'archived', 'status', 'resultPublishedAt', 'resultUploadedAt', 'homeTeamGoals', 'awayTeamGoals'],
+    order: [['date', 'ASC'], ['createdAt', 'ASC']],
+    raw: true
+  });
+  const numberMap = new Map<string, number>();
+  let seq = 0;
+  allSeasonMatches.forEach((m: any) => {
+    const isDeletedOrArchived = Boolean(m.deleted || m.archived);
+    if (!isDeletedOrArchived || isResultMatchRecord(m)) {
+      seq++;
+      numberMap.set(String(m.id), seq);
+    }
+  });
+  return numberMap;
+};
+
 const clampPredictionPct = (value: number): number =>
   Math.round(Math.max(0, Math.min(100, Number.isFinite(value) ? value : 50)));
 
@@ -492,6 +520,8 @@ const deriveLeagueLifecycle = (
 const fetchMatchesWithLightRelations = async (matchWhere: any): Promise<any[]> => {
   const matches = await Match.findAll({
     where: {
+      deleted: false,
+      archived: false,
       ...matchWhere,
     },
     order: [['createdAt', 'ASC']],
@@ -1504,12 +1534,9 @@ export const getLeagueMatches = async (ctx: Context) => {
       return;
     }
 
-    const whereClause: Record<string, unknown> = { leagueId: id };
-    if (!isSuperAdmin) {
-      whereClause.deleted = false;
-      if (!includeArchived) {
-        whereClause.archived = false;
-      }
+    const whereClause: Record<string, unknown> = { leagueId: id, deleted: false };
+    if (!includeArchived) {
+      whereClause.archived = false;
     }
 
     if (requestedSeasonId) {
@@ -1539,8 +1566,21 @@ export const getLeagueMatches = async (ctx: Context) => {
       matchesBySeasonMap[seasonId].push(match);
     });
 
+    const seasonIds = Object.keys(matchesBySeasonMap);
+    const allSeasonMatchesMap: Record<string, Map<string, number>> = {};
+
+    for (const sid of seasonIds) {
+      if (sid === 'no-season') continue;
+      try {
+        allSeasonMatchesMap[sid] = await buildSeasonMatchNumberMap(id, sid);
+      } catch (e) {
+        console.warn('Failed to build allSeasonMatchesMap for season', sid, e);
+      }
+    }
+
     const matchesWithNumbers: any[] = [];
     Object.keys(matchesBySeasonMap).forEach((seasonId) => {
+      const numberMap = allSeasonMatchesMap[seasonId];
       const seasonMatches = matchesBySeasonMap[seasonId]
         .sort((a: any, b: any) => {
           const dateA = new Date(a.date || a.createdAt).getTime();
@@ -1560,10 +1600,12 @@ export const getLeagueMatches = async (ctx: Context) => {
           delete matchJson.votes;
           delete matchJson.guestPlayers;
 
+          const assignedNumber = numberMap?.get(String(match.id)) || (index + 1);
+
           return {
             ...matchJson,
-            seasonMatchNumber: index + 1,
-            matchNumber: index + 1,
+            seasonMatchNumber: assignedNumber,
+            matchNumber: assignedNumber,
             manOfTheMatchVotes,
             guests,
           };
@@ -2435,15 +2477,28 @@ export const getLeagueById = async (ctx: Context) => {
 
     const matchesBySeasonMap: Record<string, any[]> = {};
     matches.forEach((match: any) => {
-      const seasonId = match.seasonId || 'no-season';
+      const seasonId = String(match.seasonId || 'no-season');
       if (!matchesBySeasonMap[seasonId]) {
         matchesBySeasonMap[seasonId] = [];
       }
       matchesBySeasonMap[seasonId].push(match);
     });
 
+    const seasonIds = Object.keys(matchesBySeasonMap);
+    const allSeasonMatchesMap: Record<string, Map<string, number>> = {};
+
+    for (const sid of seasonIds) {
+      if (sid === 'no-season') continue;
+      try {
+        allSeasonMatchesMap[sid] = await buildSeasonMatchNumberMap(id, sid);
+      } catch (e) {
+        console.warn('Failed to build allSeasonMatchesMap in getLeagueById for season', sid, e);
+      }
+    }
+
     const matchesWithNumbers: any[] = [];
     Object.keys(matchesBySeasonMap).forEach(seasonId => {
+      const numberMap = allSeasonMatchesMap[seasonId];
       const seasonMatches = matchesBySeasonMap[seasonId]
         .sort((a: any, b: any) => {
           const dateA = new Date(a.date || a.createdAt).getTime();
@@ -2463,10 +2518,12 @@ export const getLeagueById = async (ctx: Context) => {
           delete matchJson.votes;
           delete matchJson.guestPlayers;
 
+          const assignedNumber = numberMap?.get(String(match.id)) || (index + 1);
+
           return {
             ...matchJson,
-            seasonMatchNumber: index + 1,
-            matchNumber: index + 1,
+            seasonMatchNumber: assignedNumber,
+            matchNumber: assignedNumber,
             manOfTheMatchVotes,
             guests,
             availableUsers: matchAvailableMap[match.id] || [],
@@ -4439,19 +4496,8 @@ export const createMatchInLeague = async (ctx: Context) => {
       const members = (leagueWithMembers as any)?.members || [];
       const currentUserId = ctx.state.user.userId;
 
-      // Get match number in this season using visible (non-archived) sequence order.
-      const seasonMatches = await Match.findAll({
-        where: {
-          leagueId,
-          seasonId: activeSeason.id,
-          deleted: false,
-          archived: { [Op.not]: true }
-        },
-        attributes: ['id', 'createdAt', 'date', 'start'],
-        order: [['createdAt', 'ASC']]
-      });
-      const currentIdx = seasonMatches.findIndex((m: any) => String(m.id) === String(match.id));
-      const matchCount = currentIdx >= 0 ? currentIdx + 1 : seasonMatches.length;
+      const numberMap = await buildSeasonMatchNumberMap(leagueId, activeSeason.id);
+      const matchCount = numberMap.get(String(match.id)) || 1;
 
       const notificationsToCreate = members
         .filter((member: any) => member.id !== currentUserId)

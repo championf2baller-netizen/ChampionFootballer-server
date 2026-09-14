@@ -1923,12 +1923,29 @@ export const getMatchById = async (ctx: Context) => {
     try {
       if (match.leagueId && match.seasonId) {
         const seasonMatches = await Match.findAll({
-          where: { leagueId: match.leagueId, seasonId: match.seasonId },
-          attributes: ['id', 'date', 'createdAt'],
-          order: [['date', 'ASC'], ['createdAt', 'ASC']]
+          where: {
+            leagueId: match.leagueId,
+            seasonId: match.seasonId
+          },
+          attributes: ['id', 'date', 'createdAt', 'deleted', 'archived', 'status', 'resultPublishedAt', 'resultUploadedAt', 'homeTeamGoals', 'awayTeamGoals'],
+          order: [['date', 'ASC'], ['createdAt', 'ASC']],
+          raw: true
         });
-        const idx = seasonMatches.findIndex((m: any) => String(m.id) === String(match.id));
-        if (idx >= 0) seasonMatchNumber = idx + 1;
+
+        let seq = 0;
+        for (const m of seasonMatches) {
+          const isDeletedOrArchived = Boolean((m as any).deleted || (m as any).archived);
+          const isResult = ['RESULT_PUBLISHED', 'RESULT_UPLOADED', 'COMPLETED', 'FINISHED', 'IN_PROGRESS', 'REVISION_REQUESTED'].includes(String((m as any).status || '').toUpperCase())
+            || Boolean((m as any).resultPublishedAt || (m as any).resultUploadedAt);
+
+          if (!isDeletedOrArchived || isResult) {
+            seq++;
+            if (String(m.id) === String(match.id)) {
+              seasonMatchNumber = seq;
+              break;
+            }
+          }
+        }
       }
     } catch (seasonErr) {
       console.warn('Could not compute season match number:', seasonErr);
@@ -2751,7 +2768,11 @@ export const getMatchPrediction = async (ctx: Context) => {
     let matchNumber: number | null = null;
     if (match.leagueId) {
       const leagueMatches = await Match.findAll({
-        where: { leagueId: match.leagueId },
+        where: {
+          leagueId: match.leagueId,
+          deleted: false,
+          archived: false
+        },
         attributes: ['id'],
         order: [['createdAt', 'ASC']],
       });
