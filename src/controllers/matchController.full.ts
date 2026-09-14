@@ -433,8 +433,16 @@ export const createMatch = async (ctx: Context) => {
       start: new Date(start),
       end: new Date(end),
       location: location || '',
-      homeTeamName: homeTeamName || 'Home Team',
-      awayTeamName: awayTeamName || 'Away Team',
+      homeTeamName: (() => {
+        const str = (homeTeamName && typeof homeTeamName === 'string') ? homeTeamName.trim() : '';
+        if (!str) return 'Home Team';
+        return /\bteam$/i.test(str) ? str : `${str} Team`;
+      })(),
+      awayTeamName: (() => {
+        const str = (awayTeamName && typeof awayTeamName === 'string') ? awayTeamName.trim() : '';
+        if (!str) return 'Away Team';
+        return /\bteam$/i.test(str) ? str : `${str} Team`;
+      })(),
       homeTeamImage: homeTeamImage || null,
       awayTeamImage: awayTeamImage || null,
       notes: notes || null,

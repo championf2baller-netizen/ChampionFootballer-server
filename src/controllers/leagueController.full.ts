@@ -4438,8 +4438,16 @@ export const createMatchInLeague = async (ctx: Context) => {
       start: new Date(start),
       end: new Date(end),
       location: location || '',
-      homeTeamName: homeTeamName || 'Home Team',
-      awayTeamName: awayTeamName || 'Away Team',
+      homeTeamName: (() => {
+        const str = (homeTeamName && typeof homeTeamName === 'string') ? homeTeamName.trim() : '';
+        if (!str) return 'Home Team';
+        return /\bteam$/i.test(str) ? str : `${str} Team`;
+      })(),
+      awayTeamName: (() => {
+        const str = (awayTeamName && typeof awayTeamName === 'string') ? awayTeamName.trim() : '';
+        if (!str) return 'Away Team';
+        return /\bteam$/i.test(str) ? str : `${str} Team`;
+      })(),
       homeTeamImage,
       awayTeamImage,
       notes: notes || null,
@@ -4678,8 +4686,14 @@ export const updateMatchInLeague = async (ctx: Context) => {
 
     // Update match fields
     const updateData: any = {};
-    if (homeTeamName !== undefined) updateData.homeTeamName = homeTeamName;
-    if (awayTeamName !== undefined) updateData.awayTeamName = awayTeamName;
+    const formatTeamNameForUpdate = (name: any): string | undefined => {
+      if (name === undefined || name === null) return undefined;
+      const str = String(name).trim();
+      if (!str) return '';
+      return /\bteam$/i.test(str) ? str : `${str} Team`;
+    };
+    if (homeTeamName !== undefined) updateData.homeTeamName = formatTeamNameForUpdate(homeTeamName);
+    if (awayTeamName !== undefined) updateData.awayTeamName = formatTeamNameForUpdate(awayTeamName);
     if (date) updateData.date = new Date(date);
     if (start) updateData.start = new Date(start);
     if (end) updateData.end = new Date(end);
