@@ -202,11 +202,17 @@ export const getDreamTeam = async (ctx: Context) => {
 
     // Normalize position types accurately. Returns null if player has NO valid position set.
     const getPositionType = (player: any): 'Goalkeeper' | 'Defender' | 'Midfielder' | 'Forward' | null => {
+      if (!player) return null;
       const rawType = String(player.positionType || '').trim().toLowerCase();
       const rawPos = String(player.position || '').trim().toLowerCase();
-      const combined = `${rawType} ${rawPos}`.trim();
 
-      // If player has NO position or positionType configured, return null (DO NOT default to 'Forward')
+      // Filter out players if both position and positionType are empty, null, undefined, or unassigned
+      const invalidTokens = ['', 'null', 'undefined', 'n/a', 'none', '-', 'unassigned'];
+      if (invalidTokens.includes(rawType) && invalidTokens.includes(rawPos)) {
+        return null;
+      }
+
+      const combined = `${rawType} ${rawPos}`.trim();
       if (!combined) return null;
 
       if (
@@ -269,33 +275,46 @@ export const getDreamTeam = async (ctx: Context) => {
     // Filter out players who do NOT have a valid position configured
     const eligiblePlayers = playersWithScores.filter(p => getPositionType(p) !== null);
 
-    const defenderSort = (a: any, b: any) => {
-      if (b.score !== a.score) return b.score - a.score;
-      if (b.xp !== a.xp) return b.xp - a.xp;
-      if (b.stats.rating !== a.stats.rating) return b.stats.rating - a.stats.rating;
-      if (b.stats.wins !== a.stats.wins) return b.stats.wins - a.stats.wins;
+    // Sort function: Prioritize XP FIRST when 2 players have the same position
+    const sortByXPAndScore = (a: any, b: any, primaryStatKey?: 'goals' | 'assists' | 'rating') => {
+      // 1. Highest XP first
+      const xpA = Number(a.xp ?? a.stats?.xp ?? 0);
+      const xpB = Number(b.xp ?? b.stats?.xp ?? 0);
+      if (xpB !== xpA) return xpB - xpA;
+
+      // 2. Highest Score
+      const scoreA = Number(a.score || 0);
+      const scoreB = Number(b.score || 0);
+      if (scoreB !== scoreA) return scoreB - scoreA;
+
+      // 3. Primary Stat (assists for midfield, goals for forward, rating for defender)
+      if (primaryStatKey) {
+        const statA = Number(a.stats?.[primaryStatKey] || 0);
+        const statB = Number(b.stats?.[primaryStatKey] || 0);
+        if (statB !== statA) return statB - statA;
+      }
+
+      // 4. Rating
+      const ratingA = Number(a.stats?.rating || 0);
+      const ratingB = Number(b.stats?.rating || 0);
+      if (ratingB !== ratingA) return ratingB - ratingA;
+
+      // 5. Wins
+      const winsA = Number(a.stats?.wins || 0);
+      const winsB = Number(b.stats?.wins || 0);
+      if (winsB !== winsA) return winsB - winsA;
+
       return String(a.id).localeCompare(String(b.id));
     };
 
-    const midfielderSort = (a: any, b: any) => {
-      if (b.score !== a.score) return b.score - a.score;
-      if (b.stats.assists !== a.stats.assists) return b.stats.assists - a.stats.assists;
-      if (b.xp !== a.xp) return b.xp - a.xp;
-      if (b.stats.goals !== a.stats.goals) return b.stats.goals - a.stats.goals;
-      return String(a.id).localeCompare(String(b.id));
-    };
+    const goalkeeperSort = (a: any, b: any) => sortByXPAndScore(a, b, 'rating');
+    const defenderSort = (a: any, b: any) => sortByXPAndScore(a, b, 'rating');
+    const midfielderSort = (a: any, b: any) => sortByXPAndScore(a, b, 'assists');
+    const forwardSort = (a: any, b: any) => sortByXPAndScore(a, b, 'goals');
 
-    const forwardSort = (a: any, b: any) => {
-      if (b.score !== a.score) return b.score - a.score;
-      if (b.stats.goals !== a.stats.goals) return b.stats.goals - a.stats.goals;
-      if (b.xp !== a.xp) return b.xp - a.xp;
-      if (b.stats.assists !== a.stats.assists) return b.stats.assists - a.stats.assists;
-      return String(a.id).localeCompare(String(b.id));
-    };
-
-    // Client 5-a-side layout specs: 2 Best Defenders, 2 Best Midfielders, 1 Top Striker
+    // Client 5-a-side layout specs: 2 Best Defenders, 2 Best Midfielders, 1 Top Striker, 1 GK
     const positions = {
-      Goalkeeper: eligiblePlayers.filter(p => getPositionType(p) === 'Goalkeeper').sort(defenderSort).slice(0, 1),
+      Goalkeeper: eligiblePlayers.filter(p => getPositionType(p) === 'Goalkeeper').sort(goalkeeperSort).slice(0, 1),
       Defender: eligiblePlayers.filter(p => getPositionType(p) === 'Defender').sort(defenderSort).slice(0, 2),
       Midfielder: eligiblePlayers.filter(p => getPositionType(p) === 'Midfielder').sort(midfielderSort).slice(0, 2),
       Forward: eligiblePlayers.filter(p => getPositionType(p) === 'Forward').sort(forwardSort).slice(0, 1)
