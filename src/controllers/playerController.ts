@@ -359,7 +359,7 @@ export const getPlayerStats = async (ctx: Context) => {
       image: l.image,
       createdAt: l.createdAt,
       updatedAt: l.updatedAt
-    }));
+    })).sort((a: any, b: any) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' }));
 
     ctx.body = {
       success: true,
@@ -666,7 +666,9 @@ export const getPlayerProfile = async (ctx: Context) => {
       });
     });
 
-    const leagues = Array.from(leaguesMap.values());
+    const leagues = Array.from(leaguesMap.values()).sort((a: any, b: any) =>
+      String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' })
+    );
     const validYears = [...new Set(
       allStats
         .map((s: any) => s.match?.date ? new Date(s.match.date).getFullYear() : null)
