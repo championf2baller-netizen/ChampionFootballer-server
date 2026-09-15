@@ -1528,10 +1528,10 @@ export const getLeagueMatches = async (ctx: Context) => {
 
     const seasons = (league as any).seasons || [];
     const validSeasonIds = new Set<string>(seasons.map((s: any) => String(s.id)));
-    if (requestedSeasonId && !validSeasonIds.has(requestedSeasonId)) {
-      ctx.status = 400;
-      ctx.body = { success: false, message: 'Invalid seasonId for this league' };
-      return;
+    let effectiveSeasonId: string | undefined = requestedSeasonId || undefined;
+    if (effectiveSeasonId && !validSeasonIds.has(effectiveSeasonId)) {
+      const fallbackSeason = seasons.find((s: any) => s.isActive) || seasons[0];
+      effectiveSeasonId = fallbackSeason ? String(fallbackSeason.id) : undefined;
     }
 
     const whereClause: Record<string, unknown> = { leagueId: id, deleted: false };
@@ -1539,8 +1539,8 @@ export const getLeagueMatches = async (ctx: Context) => {
       whereClause.archived = false;
     }
 
-    if (requestedSeasonId) {
-      whereClause.seasonId = requestedSeasonId;
+    if (effectiveSeasonId) {
+      whereClause.seasonId = effectiveSeasonId;
     }
 
     const matches = await Match.findAll({
@@ -2389,10 +2389,10 @@ export const getLeagueById = async (ctx: Context) => {
     const membersJson = members.map((m: any) => m.toJSON());
     const adminsJson = administeredLeagues.map((a: any) => a.toJSON());
     const validSeasonIds = new Set<string>(seasons.map((s: any) => String(s.id)));
-    if (requestedSeasonId && !validSeasonIds.has(requestedSeasonId)) {
-      ctx.status = 400;
-      ctx.body = { success: false, message: 'Invalid seasonId for this league' };
-      return;
+    let effectiveSeasonId: string | undefined = requestedSeasonId || undefined;
+    if (effectiveSeasonId && !validSeasonIds.has(effectiveSeasonId)) {
+      const fallbackSeason = seasons.find((s: any) => s.isActive) || seasons[0];
+      effectiveSeasonId = fallbackSeason ? String(fallbackSeason.id) : undefined;
     }
     const formattedSeasons = seasons
       .sort((a: any, b: any) => (b.seasonNumber || 0) - (a.seasonNumber || 0))
@@ -2401,8 +2401,8 @@ export const getLeagueById = async (ctx: Context) => {
         members: season.players || []
       }));
 
-    const currentSeason = requestedSeasonId
-      ? (formattedSeasons.find((s: any) => String(s.id) === requestedSeasonId) || formattedSeasons.find((s: any) => s.isActive) || formattedSeasons[0] || null)
+    const currentSeason = effectiveSeasonId
+      ? (formattedSeasons.find((s: any) => String(s.id) === effectiveSeasonId) || formattedSeasons.find((s: any) => s.isActive) || formattedSeasons[0] || null)
       : (formattedSeasons.find((s: any) => s.isActive) || formattedSeasons[0] || null);
 
     // Fast path for callers that only need league metadata (name/admin/members/seasons).
@@ -2435,7 +2435,7 @@ export const getLeagueById = async (ctx: Context) => {
     // Fetch matches for requested season or all non-deleted seasons of the league
     const matches = await fetchMatchesWithLightRelations({
       leagueId: id,
-      ...(requestedSeasonId ? { seasonId: requestedSeasonId } : {})
+      ...(effectiveSeasonId ? { seasonId: effectiveSeasonId } : {})
     });
 
     console.log(`📊 [getLeagueById] Fetching matches for league ${id} (user: ${userId}, isAdmin: ${isAdmin}): ${matches.length} matches`);

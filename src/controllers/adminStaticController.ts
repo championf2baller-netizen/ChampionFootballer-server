@@ -1376,7 +1376,7 @@ MANAGEMENT CONTROLS:
     key: 'page_all_leagues_live_tab',
     category: 'leagues',
     title: 'All Leagues Live Tab Label',
-    content: 'Current / Live Leagues',
+    content: 'Live Leagues',
     metadata: {}
   },
   {

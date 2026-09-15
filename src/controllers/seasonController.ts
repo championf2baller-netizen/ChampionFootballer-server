@@ -41,6 +41,28 @@ const buildSeasonPayload = (season: Season, extra?: Record<string, unknown>) => 
   ...(extra || {}),
 });
 
+const RESULT_MATCH_STATUSES = [
+  'RESULT_PUBLISHED',
+  'RESULT_UPLOADED',
+  'REVISION_REQUESTED',
+];
+
+const countSeasonResultMatches = async (
+  leagueId: string,
+  seasonId: string,
+  transaction?: any,
+): Promise<number> => {
+  const count = await Match.count({
+    where: {
+      leagueId,
+      seasonId,
+      status: { [Op.in]: RESULT_MATCH_STATUSES },
+    } as any,
+    transaction,
+  });
+  return typeof count === 'number' ? count : Number(count || 0);
+};
+
 const generateUniqueSeasonInviteCode = async (transaction?: any): Promise<string> => {
   for (let attempt = 0; attempt < 80; attempt += 1) {
     const candidate = String(getInviteCode() || '').trim().toUpperCase();
@@ -540,42 +562,65 @@ export const createNewSeason = async (ctx: Context) => {
         });
       }
 
-      // Clean up any soft-deleted seasons with 0 matches so they don't block seasonNumber reuse
-      const emptyDeletedSeasons = await Season.findAll({
-        where: { leagueId, deleted: true },
+      // Determine new seasonNumber candidate:
+      // - If the latest season had match results (status IN RESULT_MATCH_STATUSES), next season increments (e.g. Season 3 -> Season 4).
+      // - If the latest season had NO match results (only fixtures or no matches) and was permanently deleted,
+      //   the new season reuses the SAME season number (e.g. Season 3 was deleted with only fixtures -> new season is Season 3).
+      const allSeasons = await Season.findAll({
+        where: { leagueId },
+        order: [['seasonNumber', 'DESC']],
         transaction: tx,
       });
-      for (const s of emptyDeletedSeasons) {
-        const mCount = await Match.count({
-          where: { leagueId: s.leagueId, seasonId: s.id },
-          transaction: tx,
-        });
-        if (mCount === 0) {
+
+      let candidate = 1;
+      if (allSeasons.length > 0) {
+        const topSeason = allSeasons[0];
+        const topNum = Number(topSeason.seasonNumber || 1);
+        const topResCount = await countSeasonResultMatches(leagueId, topSeason.id, tx);
+
+        if (topResCount > 0) {
+          // Latest season had match results -> next season increments
+          candidate = topNum + 1;
+        } else {
+          // Latest season had NO match results (only fixtures or no matches)
+          if (Boolean((topSeason as any).deleted)) {
+            // It was permanently deleted -> reuse the SAME season number!
+            candidate = topNum;
+          } else {
+            // Not deleted, but being ended/replaced -> increment
+            candidate = topNum + 1;
+          }
+        }
+      }
+
+      // Clean up any soft-deleted seasons with seasonNumber >= candidate that had 0 match results,
+      // so candidate can insert cleanly with NO duplicate key / unique constraint conflict.
+      const deletedToClean = await Season.findAll({
+        where: {
+          leagueId,
+          deleted: true,
+          seasonNumber: { [Op.gte]: candidate },
+        },
+        transaction: tx,
+      });
+      for (const s of deletedToClean) {
+        const resCount = await countSeasonResultMatches(s.leagueId, s.id, tx);
+        if (resCount === 0) {
+          await Match.destroy({
+            where: { leagueId: s.leagueId, seasonId: s.id },
+            transaction: tx,
+          });
+          try {
+            await (s as any).setPlayers([], { transaction: tx });
+          } catch {}
           await s.destroy({ transaction: tx });
         }
       }
-
-      // Calculate maxSeasonNumber from non-deleted seasons
-      const activeOrArchivedSeasons = await Season.findAll({
-        where: { leagueId, deleted: false },
-        attributes: ['seasonNumber'],
-        transaction: tx,
-      });
-
-      let maxSeasonNumber = 0;
-      for (const s of activeOrArchivedSeasons) {
-        const n = Number((s as any).seasonNumber || 0);
-        if (Number.isInteger(n) && n > maxSeasonNumber) {
-          maxSeasonNumber = n;
-        }
-      }
-
-      let candidate = maxSeasonNumber + 1;
       // Insert with ON CONFLICT DO NOTHING so duplicate seasonNumber never aborts the tx.
       // This handles race conditions and old unique-constraint states safely.
       let insertedSeasonId = '';
       let insertGuard = 0;
-      while (!insertedSeasonId && insertGuard < Math.max(maxSeasonNumber + 25, 25)) {
+      while (!insertedSeasonId && insertGuard < Math.max(candidate + 25, 25)) {
         const now = new Date();
         const seasonInviteCode = await generateUniqueSeasonInviteCode(tx);
         const replacements = {
@@ -1342,37 +1387,24 @@ export const permanentDeleteSeason = async (ctx: Context) => {
       return;
     }
 
-    const matchCount = await Match.count({
-      where: {
-        leagueId: seasonInTx.leagueId,
-        seasonId: seasonInTx.id,
-      },
-      transaction: tx,
-    });
-
-    if (matchCount === 0) {
-      // If the season has no matches, destroy it completely so the season name/number can be reused
-      await seasonInTx.destroy({ transaction: tx });
-    } else {
-      (seasonInTx as any).deleted = true;
-      (seasonInTx as any).archived = true;
-      seasonInTx.isActive = false;
-      if (!seasonInTx.endDate) {
-        seasonInTx.endDate = new Date();
-      }
-      await seasonInTx.save({ transaction: tx });
-
-      await Match.update(
-        { archived: true, deleted: true },
-        {
-          where: {
-            leagueId: seasonInTx.leagueId,
-            seasonId: seasonInTx.id,
-          },
-          transaction: tx,
-        }
-      );
+    (seasonInTx as any).deleted = true;
+    (seasonInTx as any).archived = true;
+    seasonInTx.isActive = false;
+    if (!seasonInTx.endDate) {
+      seasonInTx.endDate = new Date();
     }
+    await seasonInTx.save({ transaction: tx });
+
+    await Match.update(
+      { archived: true, deleted: true },
+      {
+        where: {
+          leagueId: seasonInTx.leagueId,
+          seasonId: seasonInTx.id,
+        },
+        transaction: tx,
+      }
+    );
 
     // Deleting a season should never automatically activate an inactive or completed season.
     // Inactive seasons must remain inactive unless explicitly activated by the administrator.
