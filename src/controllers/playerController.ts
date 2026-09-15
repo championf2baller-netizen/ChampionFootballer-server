@@ -313,7 +313,7 @@ export const getPlayerStats = async (ctx: Context) => {
     });
 
     const avgImpact = played > 0 ? +(totalImpact / played).toFixed(2) : 0;
-    const avgXP = played > 0 ? +(totalXP / played).toFixed(2) : 0;
+    const avgXP = played > 0 ? Math.floor(((totalXP / played) + 1e-9) * 100) / 100 : 0;
     const winRate = played > 0 ? (wins / played) * 100 : 0;
 
     // Recent matches in descending date order (newest first)

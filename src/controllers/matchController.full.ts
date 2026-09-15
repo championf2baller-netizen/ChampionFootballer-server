@@ -66,65 +66,53 @@ const getLeagueXPMap = async (
 ): Promise<{ avgMap: Record<string, number>; leagueAvgXPValue: number }> => {
   const avgMap: Record<string, number> = {};
 
-  // Aggregate canonical XP from match_statistics.xp_awarded for real participants only.
-  let xpQuery = `SELECT
-       ms.user_id,
-       COALESCE(SUM(ms.xp_awarded), 0) AS total_xp,
-       COUNT(DISTINCT ms.match_id) AS match_count
-     FROM match_statistics ms
-     INNER JOIN "Matches" m ON m.id = ms.match_id
-     WHERE m."leagueId" = $1
-       AND m.status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED')`;
-  const binds: any[] = [leagueId];
-  if (seasonId) {
-    xpQuery += ` AND m."seasonId" = $2`;
-    binds.push(seasonId);
-  }
-  xpQuery += `
-       AND (
-         EXISTS (
-           SELECT 1 FROM "UserHomeMatches" uh
-           WHERE uh."matchId" = ms.match_id AND uh."userId" = ms.user_id
-         )
-         OR EXISTS (
-           SELECT 1 FROM "UserAwayMatches" ua
-           WHERE ua."matchId" = ms.match_id AND ua."userId" = ms.user_id
-         )
-       )
-     GROUP BY ms.user_id`;
+  // Aggregate canonical XP from match_statistics.xp_awarded and count all participated matches via union
+  const xpQuery = `
+    WITH user_matches AS (
+      SELECT uhm."userId" AS user_id, uhm."matchId" AS match_id
+      FROM "UserHomeMatches" uhm
+      JOIN "Matches" m ON uhm."matchId" = m.id
+      WHERE m."leagueId" = $1
+        AND m.status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED')
+        AND (m.deleted IS NULL OR m.deleted = false)
+      UNION
+      SELECT uam."userId" AS user_id, uam."matchId" AS match_id
+      FROM "UserAwayMatches" uam
+      JOIN "Matches" m ON uam."matchId" = m.id
+      WHERE m."leagueId" = $1
+        AND m.status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED')
+        AND (m.deleted IS NULL OR m.deleted = false)
+      UNION
+      SELECT ms.user_id AS user_id, ms.match_id AS match_id
+      FROM match_statistics ms
+      JOIN "Matches" m ON ms.match_id = m.id
+      WHERE m."leagueId" = $1
+        AND m.status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED')
+        AND (m.deleted IS NULL OR m.deleted = false)
+    ),
+    user_xp AS (
+      SELECT ms.user_id, COALESCE(SUM(ms.xp_awarded), 0) AS total_xp
+      FROM match_statistics ms
+      JOIN "Matches" m ON ms.match_id = m.id
+      WHERE m."leagueId" = $1
+        AND m.status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED')
+        AND (m.deleted IS NULL OR m.deleted = false)
+      GROUP BY ms.user_id
+    )
+    SELECT
+      um.user_id,
+      COALESCE(ux.total_xp, 0) AS total_xp,
+      COUNT(DISTINCT um.match_id) AS match_count
+    FROM user_matches um
+    LEFT JOIN user_xp ux ON um.user_id = ux.user_id
+    GROUP BY um.user_id, ux.total_xp
+  `;
 
-  let xpRows = await sequelize.query<{
+  const xpRows = await sequelize.query<{
     user_id: string;
     total_xp: number | string;
     match_count: number | string;
-  }>(xpQuery, { bind: binds, type: QueryTypes.SELECT });
-
-  if ((!xpRows || xpRows.length === 0) && seasonId) {
-    const fallbackQuery = `SELECT
-         ms.user_id,
-         COALESCE(SUM(ms.xp_awarded), 0) AS total_xp,
-         COUNT(DISTINCT ms.match_id) AS match_count
-       FROM match_statistics ms
-       INNER JOIN "Matches" m ON m.id = ms.match_id
-       WHERE m."leagueId" = $1
-         AND m.status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED')
-         AND (
-           EXISTS (
-             SELECT 1 FROM "UserHomeMatches" uh
-             WHERE uh."matchId" = ms.match_id AND uh."userId" = ms.user_id
-           )
-           OR EXISTS (
-             SELECT 1 FROM "UserAwayMatches" ua
-             WHERE ua."matchId" = ms.match_id AND ua."userId" = ms.user_id
-           )
-         )
-       GROUP BY ms.user_id`;
-    xpRows = await sequelize.query<{
-      user_id: string;
-      total_xp: number | string;
-      match_count: number | string;
-    }>(fallbackQuery, { bind: [leagueId], type: QueryTypes.SELECT });
-  }
+  }>(xpQuery, { bind: [leagueId], type: QueryTypes.SELECT });
 
   const nonZeroAvgValues: number[] = [];
 
@@ -132,7 +120,7 @@ const getLeagueXPMap = async (
     const uid = String(row.user_id);
     const totalXP = Number(row.total_xp) || 0;
     const matchCount = Number(row.match_count) || 0;
-    const avgVal = matchCount > 0 ? Math.round(totalXP / matchCount) : 0;
+    const avgVal = matchCount > 0 ? Math.floor(((totalXP / matchCount) + 1e-9) * 100) / 100 : 0;
     avgMap[uid] = avgVal;
     if (avgVal > 0) {
       nonZeroAvgValues.push(avgVal);
@@ -142,7 +130,7 @@ const getLeagueXPMap = async (
   let leagueAvgXPValue = 0;
   if (nonZeroAvgValues.length > 0) {
     const sum = nonZeroAvgValues.reduce((a, b) => a + b, 0);
-    leagueAvgXPValue = Math.round(((sum / nonZeroAvgValues.length) + Number.EPSILON) * 100) / 100;
+    leagueAvgXPValue = Math.floor(((sum / nonZeroAvgValues.length) + 1e-9) * 100) / 100;
   }
 
   return { avgMap, leagueAvgXPValue };
