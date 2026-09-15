@@ -462,13 +462,11 @@ export const createMatch = async (ctx: Context) => {
       location: location || '',
       homeTeamName: (() => {
         const str = (homeTeamName && typeof homeTeamName === 'string') ? homeTeamName.trim() : '';
-        if (!str) return 'Home Team';
-        return /\bteam$/i.test(str) ? str : `${str} Team`;
+        return str || 'Home Team';
       })(),
       awayTeamName: (() => {
         const str = (awayTeamName && typeof awayTeamName === 'string') ? awayTeamName.trim() : '';
-        if (!str) return 'Away Team';
-        return /\bteam$/i.test(str) ? str : `${str} Team`;
+        return str || 'Away Team';
       })(),
       homeTeamImage: homeTeamImage || null,
       awayTeamImage: awayTeamImage || null,

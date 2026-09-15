@@ -4495,13 +4495,11 @@ export const createMatchInLeague = async (ctx: Context) => {
       location: location || '',
       homeTeamName: (() => {
         const str = (homeTeamName && typeof homeTeamName === 'string') ? homeTeamName.trim() : '';
-        if (!str) return 'Home Team';
-        return /\bteam$/i.test(str) ? str : `${str} Team`;
+        return str || 'Home Team';
       })(),
       awayTeamName: (() => {
         const str = (awayTeamName && typeof awayTeamName === 'string') ? awayTeamName.trim() : '';
-        if (!str) return 'Away Team';
-        return /\bteam$/i.test(str) ? str : `${str} Team`;
+        return str || 'Away Team';
       })(),
       homeTeamImage,
       awayTeamImage,
@@ -4743,9 +4741,7 @@ export const updateMatchInLeague = async (ctx: Context) => {
     const updateData: any = {};
     const formatTeamNameForUpdate = (name: any): string | undefined => {
       if (name === undefined || name === null) return undefined;
-      const str = String(name).trim();
-      if (!str) return '';
-      return /\bteam$/i.test(str) ? str : `${str} Team`;
+      return String(name).trim();
     };
     if (homeTeamName !== undefined) updateData.homeTeamName = formatTeamNameForUpdate(homeTeamName);
     if (awayTeamName !== undefined) updateData.awayTeamName = formatTeamNameForUpdate(awayTeamName);
