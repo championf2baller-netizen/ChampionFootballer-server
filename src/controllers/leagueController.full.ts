@@ -146,11 +146,38 @@ const getLeagueXPMap = async (
        )
      GROUP BY ms.user_id`;
 
-  const xpRows = await sequelize.query<{
+  let xpRows = await sequelize.query<{
     user_id: string;
     total_xp: number | string;
     match_count: number | string;
   }>(xpQuery, { bind: binds, type: QueryTypes.SELECT });
+
+  if ((!xpRows || xpRows.length === 0) && seasonId) {
+    const fallbackQuery = `SELECT
+         ms.user_id,
+         COALESCE(SUM(ms.xp_awarded), 0) AS total_xp,
+         COUNT(DISTINCT ms.match_id) AS match_count
+       FROM match_statistics ms
+       INNER JOIN "Matches" m ON m.id = ms.match_id
+       WHERE m."leagueId" = $1
+         AND m.status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED')
+         AND (
+           EXISTS (
+             SELECT 1 FROM "UserHomeMatches" uh
+             WHERE uh."matchId" = ms.match_id AND uh."userId" = ms.user_id
+           )
+           OR EXISTS (
+             SELECT 1 FROM "UserAwayMatches" ua
+             WHERE ua."matchId" = ms.match_id AND ua."userId" = ms.user_id
+           )
+         )
+       GROUP BY ms.user_id`;
+    xpRows = await sequelize.query<{
+      user_id: string;
+      total_xp: number | string;
+      match_count: number | string;
+    }>(fallbackQuery, { bind: [leagueId], type: QueryTypes.SELECT });
+  }
 
   const nonZeroAvgValues: number[] = [];
 
@@ -2888,11 +2915,40 @@ export const getLeagueXP = async (ctx: Context) => {
            )
          GROUP BY ms.user_id`;
 
-      const xpRows = await sequelize.query<{
+      let xpRows = await sequelize.query<{
         user_id: string;
         total_xp: number | string;
         match_count: number | string;
       }>(xpQuery, { bind: binds, type: QueryTypes.SELECT });
+
+      // Fallback: If this season has no completed matches yet, fall back to league-wide matches
+      // so players' historic average XP and ratings in the league are preserved!
+      if ((!xpRows || xpRows.length === 0) && seasonId) {
+        const fallbackQuery = `SELECT
+             ms.user_id,
+             COALESCE(SUM(ms.xp_awarded), 0) AS total_xp,
+             COUNT(DISTINCT ms.match_id) AS match_count
+           FROM match_statistics ms
+           INNER JOIN "Matches" m ON m.id = ms.match_id
+           WHERE m."leagueId" = $1
+             AND m.status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED')
+             AND (
+               EXISTS (
+                 SELECT 1 FROM "UserHomeMatches" uh
+                 WHERE uh."matchId" = ms.match_id AND uh."userId" = ms.user_id
+               )
+               OR EXISTS (
+                 SELECT 1 FROM "UserAwayMatches" ua
+                 WHERE ua."matchId" = ms.match_id AND ua."userId" = ms.user_id
+               )
+             )
+           GROUP BY ms.user_id`;
+        xpRows = await sequelize.query<{
+          user_id: string;
+          total_xp: number | string;
+          match_count: number | string;
+        }>(fallbackQuery, { bind: [id], type: QueryTypes.SELECT });
+      }
 
       xpRows.forEach((row) => {
         const uid = String(row.user_id);
