@@ -599,17 +599,39 @@ async function getPlayerTeamForMatch(userId: string, matchId: string): Promise<'
   if (homeTeamUserIds.some(u => String(u.userId) === uid)) return 'home';
   if (awayTeamUserIds.some(u => String(u.userId) === uid)) return 'away';
 
+  // Also check match_player_layouts
+  try {
+    const layout = await sequelize.query<{ team: string }>(
+      `SELECT team FROM match_player_layouts WHERE "matchId" = $1 AND "userId" = $2 LIMIT 1`,
+      { bind: [matchId, uid], type: QueryTypes.SELECT }
+    );
+    if (layout.length > 0 && layout[0].team) {
+      const t = String(layout[0].team).toLowerCase();
+      if (t === 'home' || t === 'away') return t as 'home' | 'away';
+    }
+  } catch {}
+
   const user = await User.findByPk(uid, { attributes: ['id', 'provider', 'providerId'] } as any);
   const provider = String((user as any)?.provider || '');
   const providerId = String((user as any)?.providerId || '');
-  if (provider !== 'guest' || !providerId) return null;
+  if (provider === 'guest' && providerId) {
+    const guest = await (models as any).MatchGuest.findOne({
+      where: { id: providerId, matchId },
+      attributes: ['id', 'team']
+    });
+    if (guest) return normalizeTeam((guest as any).team);
+  }
 
-  const guest = await (models as any).MatchGuest.findOne({
-    where: { id: providerId, matchId },
-    attributes: ['id', 'team']
-  });
-  if (!guest) return null;
-  return normalizeTeam((guest as any).team);
+  // Also check direct guest ID
+  try {
+    const directGuest = await (models as any).MatchGuest.findOne({
+      where: { id: uid, matchId },
+      attributes: ['id', 'team']
+    });
+    if (directGuest) return normalizeTeam((directGuest as any).team);
+  } catch {}
+
+  return null;
 }
 
 async function getTeamResultForUserInMatch(
@@ -647,6 +669,24 @@ async function recalculateMatchXPForCurrentState(matchId: string, ensureUserIds:
   homeTeamUserIds.forEach((u) => participantIds.add(String(u.userId)));
   awayTeamUserIds.forEach((u) => participantIds.add(String(u.userId)));
 
+  // Include players from match_player_layouts
+  try {
+    const layoutUsers = await sequelize.query<{ userId: string }>(
+      `SELECT DISTINCT "userId" FROM match_player_layouts WHERE "matchId" = $1`,
+      { bind: [matchId], type: QueryTypes.SELECT }
+    );
+    layoutUsers.forEach((u) => participantIds.add(String(u.userId)));
+  } catch {}
+
+  // Include any existing stats rows
+  try {
+    const existingStats = await sequelize.query<{ user_id: string }>(
+      `SELECT DISTINCT user_id FROM match_statistics WHERE match_id = $1`,
+      { bind: [matchId], type: QueryTypes.SELECT }
+    );
+    existingStats.forEach((u) => participantIds.add(String(u.user_id)));
+  } catch {}
+
   // Also include guest mirror users so captain picks and base XP can apply consistently.
   const matchGuests = await MatchGuest.findAll({ where: { matchId }, attributes: ['id'] as any });
   const guestIds = (matchGuests || [])
@@ -670,17 +710,28 @@ async function recalculateMatchXPForCurrentState(matchId: string, ensureUserIds:
   for (const uid of participantIds) {
     try {
       await sequelize.query(
-        `INSERT INTO match_statistics (id, match_id, user_id, goals, assists, "cleanSheets", penalties, "freeKicks", "yellowCards", "redCards", defence, impact, "minutesPlayed", rating, xp_awarded, "createdAt", "updatedAt")
-         VALUES (gen_random_uuid(), :matchId, :userId, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, NOW(), NOW())
-         ON CONFLICT (match_id, user_id) DO NOTHING`,
+        `INSERT INTO match_statistics (
+           id, match_id, user_id, goals, assists, clean_sheets, penalties,
+           free_kicks, yellow_cards, red_cards, defence, impact, minutes_played,
+           rating, xp_awarded, created_at, updated_at
+         )
+         VALUES (
+           gen_random_uuid(), :matchId, :userId, 0, 0, 0, 0,
+           0, 0, 0, 0, 0, 0,
+           0, 0, NOW(), NOW()
+         )
+         ON CONFLICT (user_id, match_id) DO NOTHING`,
         { replacements: { matchId, userId: uid } }
       );
-    } catch {}
+    } catch (insertErr) {
+      console.error(`Failed to ensure match_statistics row for user ${uid} in match ${matchId}:`, insertErr);
+    }
   }
 
   const match = await Match.findByPk(matchId, {
     attributes: [
       'id',
+      'leagueId',
       'homeTeamGoals',
       'awayTeamGoals',
       'homeDefensiveImpactId',
@@ -831,13 +882,11 @@ async function recalculateMatchXPForCurrentState(matchId: string, ensureUserIds:
         nextAwarded += teamResult === 'win' ? xpPointsTable.mentality.win : xpPointsTable.mentality.lose;
       }
 
-
-
       nextAwarded = Math.max(0, Math.round(nextAwarded));
       if (nextAwarded === prevAwarded) continue;
 
       await sequelize.query(
-        `UPDATE match_statistics SET xp_awarded = $1 WHERE match_id = $2 AND user_id = $3`,
+        `UPDATE match_statistics SET xp_awarded = $1, updated_at = NOW() WHERE match_id = $2 AND user_id = $3`,
         { bind: [nextAwarded, matchId, userId], transaction: tx }
       );
 
@@ -851,14 +900,35 @@ async function recalculateMatchXPForCurrentState(matchId: string, ensureUserIds:
         const finalXP = Math.max(0, currentXP + delta);
         if (finalXP !== currentXP) {
           await sequelize.query(
-            `UPDATE users SET xp = $1 WHERE id = $2`,
+            `UPDATE users SET xp = $1, "updatedAt" = NOW() WHERE id = $2`,
             { bind: [finalXP, userId], transaction: tx }
           );
+          console.log(`⚡ Awarded XP to user ${userId}: prev=${prevAwarded}, next=${nextAwarded}, delta=${delta}, currentXP=${currentXP} -> newXP=${finalXP}`);
         }
       }
     }
 
     await tx.commit();
+
+    // Invalidate caches for all participants so updated XP shows immediately
+    for (const row of statsRows) {
+      const uid = String(row.user_id);
+      try {
+        cache.del(`auth_data_${uid}_ultra_fast`);
+        cache.del(`auth_status_${uid}_fast`);
+        cache.del(`user_leagues_${uid}`);
+        cache.del(`user_achievements_${uid}`);
+        cache.del(`user_global_stats_${uid}`);
+        cache.clearPattern(`player_trophies_${uid}`);
+      } catch {}
+    }
+    cache.del(`match_${matchId}`);
+    if (match.leagueId) {
+      cache.clearPattern(`league_${match.leagueId}`);
+      cache.clearPattern(`matches_league_${match.leagueId}`);
+    }
+    cache.clearPattern('leaderboard_');
+    cache.clearPattern('trophy_room_');
   } catch (err) {
     await tx.rollback();
     throw err;
