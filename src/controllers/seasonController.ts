@@ -1374,36 +1374,8 @@ export const permanentDeleteSeason = async (ctx: Context) => {
       );
     }
 
-    // After deletion, always keep latest remaining non-archived season as active.
-    const replacement = await Season.findOne({
-      where: {
-        leagueId: seasonInTx.leagueId,
-        deleted: false,
-        archived: false,
-        id: { [Op.ne]: seasonInTx.id },
-      },
-      order: [['seasonNumber', 'DESC']],
-      transaction: tx,
-    });
-
-    if (replacement) {
-      await Season.update(
-        { isActive: false },
-        {
-          where: {
-            leagueId: seasonInTx.leagueId,
-            deleted: false,
-            archived: false,
-            id: { [Op.ne]: replacement.id },
-          },
-          transaction: tx,
-        }
-      );
-
-      replacement.isActive = true;
-      replacement.endDate = null as any;
-      await replacement.save({ transaction: tx });
-    }
+    // Deleting a season should never automatically activate an inactive or completed season.
+    // Inactive seasons must remain inactive unless explicitly activated by the administrator.
 
     await tx.commit();
     await invalidateLeagueMutationCaches(String(seasonInTx.leagueId), [userId]);
