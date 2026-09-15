@@ -217,6 +217,26 @@ export const getAllSeasons = async (ctx: Context) => {
     ]
   });
 
+  const matchCounts = await Match.findAll({
+    where: {
+      leagueId,
+      deleted: false,
+    },
+    attributes: [
+      'seasonId',
+      [(Season as any).sequelize.fn('COUNT', (Season as any).sequelize.col('id')), 'count'],
+    ],
+    group: ['seasonId'],
+    raw: true,
+  }) as unknown as Array<{ seasonId: string; count: string | number }>;
+
+  const matchCountBySeasonId = new Map<string, number>();
+  matchCounts.forEach((row) => {
+    if (row.seasonId) {
+      matchCountBySeasonId.set(String(row.seasonId), Number(row.count || 0));
+    }
+  });
+
   // If user is admin, show ALL seasons
   if (isAdmin) {
     const allSeasons = seasons.map((season) => {
@@ -237,11 +257,11 @@ export const getAllSeasons = async (ctx: Context) => {
         showPoints: season.showPoints,
         players: players,
         playerCount: players.length,
+        matchCount: matchCountBySeasonId.get(String(season.id)) || 0,
         createdAt: season.createdAt,
         isMember: isPlayerInSeason
       };
     });
-
 
     ctx.body = {
       success: true,
@@ -1159,6 +1179,44 @@ export const updateSeason = async (ctx: Context) => {
       seasonInTx.showPoints = showPointsInput;
     }
 
+    if (nextArchived === true) {
+      const seasonMatchCount = await Match.count({
+        where: {
+          leagueId: seasonInTx.leagueId,
+          seasonId: seasonInTx.id,
+          deleted: false,
+        },
+        transaction: tx,
+      });
+
+      if (seasonMatchCount === 0) {
+        // Season has no matches -> do NOT archive; permanently delete!
+        (seasonInTx as any).deleted = true;
+        (seasonInTx as any).archived = false;
+        seasonInTx.isActive = false;
+        if (!seasonInTx.endDate) {
+          seasonInTx.endDate = new Date();
+        }
+        await seasonInTx.save({ transaction: tx });
+
+        await tx.commit();
+        await invalidateLeagueMutationCaches(String(seasonInTx.leagueId), [userId]);
+        try {
+          cache.clear();
+        } catch {}
+
+        console.log(`🗑️ [updateSeason] Season "${seasonInTx.name}" had 0 matches and was permanently deleted instead of archived.`);
+
+        ctx.body = {
+          success: true,
+          permanentlyDeleted: true,
+          message: 'Season has no matches and was permanently deleted',
+          season: buildSeasonPayload(seasonInTx as Season),
+        };
+        return;
+      }
+    }
+
     if (nextArchived !== undefined) {
       (seasonInTx as any).archived = nextArchived;
     }
@@ -1388,7 +1446,7 @@ export const permanentDeleteSeason = async (ctx: Context) => {
     }
 
     (seasonInTx as any).deleted = true;
-    (seasonInTx as any).archived = true;
+    (seasonInTx as any).archived = false;
     seasonInTx.isActive = false;
     if (!seasonInTx.endDate) {
       seasonInTx.endDate = new Date();
