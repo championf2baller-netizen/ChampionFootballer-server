@@ -2421,10 +2421,28 @@ export const getLeagueById = async (ctx: Context) => {
       const fallbackSeason = seasons.find((s: any) => s.isActive) || seasons[0];
       effectiveSeasonId = fallbackSeason ? String(fallbackSeason.id) : undefined;
     }
+    // Query match counts per season for this league
+    const matchCountsPerSeason: Array<{ seasonId: string | null; count: string | number }> = await (League.sequelize! as any).query(`
+      SELECT "seasonId", COUNT(id) as count
+      FROM "Matches"
+      WHERE "leagueId" = $1 AND (deleted IS NULL OR deleted = false)
+      GROUP BY "seasonId"
+    `, { bind: [id], type: QueryTypes.SELECT });
+
+    const seasonMatchCountMap: Record<string, number> = {};
+    matchCountsPerSeason.forEach((row) => {
+      if (row.seasonId) {
+        seasonMatchCountMap[String(row.seasonId)] = Number(row.count) || 0;
+      }
+    });
+
     const formattedSeasons = seasons
       .sort((a: any, b: any) => (b.seasonNumber || 0) - (a.seasonNumber || 0))
       .map((season: any) => ({
         ...season.toJSON(),
+        matchCount: seasonMatchCountMap[String(season.id)] || 0,
+        matchesCount: seasonMatchCountMap[String(season.id)] || 0,
+        completedMatches: seasonMatchCountMap[String(season.id)] || 0,
         members: season.players || []
       }));
 
@@ -2812,7 +2830,7 @@ export const getLeagueXP = async (ctx: Context) => {
   }
 
   const userId = ctx.state.user.userId;
-  const cacheKey = `league_xp_${id}_${querySeasonId || 'active'}_${userId}`;
+  const cacheKey = `league_xp_${id}_${querySeasonId || 'all'}_${userId}`;
   const cached = cache.get(cacheKey);
   if (cached) {
     ctx.set('X-Cache', 'HIT');
@@ -2821,7 +2839,7 @@ export const getLeagueXP = async (ctx: Context) => {
   }
 
   try {
-    const [league, members, administeredLeagues, activeSeason] = await Promise.all([
+    const [league, members, administeredLeagues] = await Promise.all([
       League.findByPk(id, { attributes: ['id'] }),
       User.findAll({
         attributes: ['id'],
@@ -2848,11 +2866,6 @@ export const getLeagueXP = async (ctx: Context) => {
             required: true,
           }
         ]
-      }),
-      Season.findOne({
-        where: { leagueId: id, isActive: true, archived: false, deleted: false },
-        attributes: ['id'],
-        order: [['seasonNumber', 'DESC'], ['createdAt', 'DESC']]
       })
     ]);
 
@@ -2871,107 +2884,93 @@ export const getLeagueXP = async (ctx: Context) => {
       return;
     }
 
-    const seasonId = querySeasonId || (activeSeason ? String((activeSeason as any).id) : undefined);
-
-    // Canonical source of truth: match_statistics.xp_awarded
-    // (already computed at stats submission time).
-    const xpMap: Record<string, number> = {};
-    const avgMap: Record<string, number> = {};
-    const matchCountMap: Record<string, number> = {};
     const sequelize = League.sequelize!;
-
     const memberIds = members.map((m: any) => String(m.id));
+
+    // 1. Compute overall league XP and average XP across ALL seasons in this league
+    // (As requested: Average XP in Edit Match is NOT season-based; it is overall league total XP / total matches in league)
+    const overallXpMap: Record<string, number> = {};
+    const overallAvgMap: Record<string, number> = {};
+    const overallMatchCountMap: Record<string, number> = {};
+
     memberIds.forEach((uid: string) => {
-      xpMap[uid] = 0;
-      avgMap[uid] = 0;
-      matchCountMap[uid] = 0;
+      overallXpMap[uid] = 0;
+      overallAvgMap[uid] = 0;
+      overallMatchCountMap[uid] = 0;
     });
 
     try {
-      // Aggregate canonical XP from match_statistics.xp_awarded for real participants only.
-      let xpQuery = `SELECT
+      const overallQuery = `SELECT
            ms.user_id,
            COALESCE(SUM(ms.xp_awarded), 0) AS total_xp,
            COUNT(DISTINCT ms.match_id) AS match_count
          FROM match_statistics ms
          INNER JOIN "Matches" m ON m.id = ms.match_id
          WHERE m."leagueId" = $1
-           AND m.status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED')`;
-      const binds: any[] = [id];
-      if (seasonId) {
-        xpQuery += ` AND m."seasonId" = $2`;
-        binds.push(seasonId);
-      }
-      xpQuery += `
-           AND (
-             EXISTS (
-               SELECT 1 FROM "UserHomeMatches" uh
-               WHERE uh."matchId" = ms.match_id AND uh."userId" = ms.user_id
-             )
-             OR EXISTS (
-               SELECT 1 FROM "UserAwayMatches" ua
-               WHERE ua."matchId" = ms.match_id AND ua."userId" = ms.user_id
-             )
-           )
+           AND m.status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED')
+           AND (m.deleted IS NULL OR m.deleted = false)
          GROUP BY ms.user_id`;
 
-      let xpRows = await sequelize.query<{
+      const overallRows = await sequelize.query<{
         user_id: string;
         total_xp: number | string;
         match_count: number | string;
-      }>(xpQuery, { bind: binds, type: QueryTypes.SELECT });
+      }>(overallQuery, { bind: [id], type: QueryTypes.SELECT });
 
-      // Fallback: If this season has no completed matches yet, fall back to league-wide matches
-      // so players' historic average XP and ratings in the league are preserved!
-      if ((!xpRows || xpRows.length === 0) && seasonId) {
-        const fallbackQuery = `SELECT
-             ms.user_id,
-             COALESCE(SUM(ms.xp_awarded), 0) AS total_xp,
-             COUNT(DISTINCT ms.match_id) AS match_count
-           FROM match_statistics ms
-           INNER JOIN "Matches" m ON m.id = ms.match_id
-           WHERE m."leagueId" = $1
-             AND m.status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED')
-             AND (
-               EXISTS (
-                 SELECT 1 FROM "UserHomeMatches" uh
-                 WHERE uh."matchId" = ms.match_id AND uh."userId" = ms.user_id
-               )
-               OR EXISTS (
-                 SELECT 1 FROM "UserAwayMatches" ua
-                 WHERE ua."matchId" = ms.match_id AND ua."userId" = ms.user_id
-               )
-             )
-           GROUP BY ms.user_id`;
-        xpRows = await sequelize.query<{
-          user_id: string;
-          total_xp: number | string;
-          match_count: number | string;
-        }>(fallbackQuery, { bind: [id], type: QueryTypes.SELECT });
-      }
-
-      xpRows.forEach((row) => {
+      overallRows.forEach((row) => {
         const uid = String(row.user_id);
         const totalXP = Number(row.total_xp) || 0;
         const matchCount = Number(row.match_count) || 0;
-        xpMap[uid] = totalXP;
-        matchCountMap[uid] = matchCount;
-        avgMap[uid] = matchCount > 0 ? Math.round(totalXP / matchCount) : 0;
-      });
-
-      memberIds.forEach((uid) => {
-        if (xpMap[uid] == null) xpMap[uid] = 0;
-        if (avgMap[uid] == null) avgMap[uid] = 0;
-        if (matchCountMap[uid] == null) matchCountMap[uid] = 0;
+        overallXpMap[uid] = totalXP;
+        overallMatchCountMap[uid] = matchCount;
+        overallAvgMap[uid] = matchCount > 0 ? Math.round(((totalXP / matchCount) + Number.EPSILON) * 100) / 100 : 0;
       });
     } catch (statsErr) {
-      console.error('Could not compute league XP:', statsErr);
+      console.error('Could not compute overall league XP:', statsErr);
+    }
+
+    // 2. If a specific seasonId was requested (e.g., from season leaderboard), compute season-specific total XP
+    const xpMap: Record<string, number> = { ...overallXpMap };
+    if (querySeasonId) {
+      try {
+        const seasonQuery = `SELECT
+             ms.user_id,
+             COALESCE(SUM(ms.xp_awarded), 0) AS total_xp
+           FROM match_statistics ms
+           INNER JOIN "Matches" m ON m.id = ms.match_id
+           WHERE m."leagueId" = $1
+             AND m."seasonId" = $2
+             AND m.status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED')
+             AND (m.deleted IS NULL OR m.deleted = false)
+           GROUP BY ms.user_id`;
+
+        const seasonRows = await sequelize.query<{
+          user_id: string;
+          total_xp: number | string;
+        }>(seasonQuery, { bind: [id, querySeasonId], type: QueryTypes.SELECT });
+
+        memberIds.forEach((uid) => {
+          xpMap[uid] = 0;
+        });
+
+        seasonRows.forEach((row) => {
+          const uid = String(row.user_id);
+          xpMap[uid] = Number(row.total_xp) || 0;
+        });
+      } catch (seasonErr) {
+        console.error('Could not compute season-specific XP:', seasonErr);
+      }
     }
 
     const payload = {
       success: true,
       xp: xpMap,
-      avg: avgMap
+      avg: overallAvgMap, // ALWAYS overall league average across all seasons
+      overall_xp: overallXpMap,
+      overall_avg: overallAvgMap,
+      league_xp: overallXpMap,
+      league_avg: overallAvgMap,
+      match_counts: overallMatchCountMap,
     };
     cache.set(cacheKey, payload, 6);
     ctx.set('X-Cache', 'MISS');
