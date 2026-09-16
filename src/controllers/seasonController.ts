@@ -583,9 +583,12 @@ export const createNewSeason = async (ctx: Context) => {
       }
 
       // Determine new seasonNumber candidate:
-      // - If the latest season had match results (status IN RESULT_MATCH_STATUSES), next season increments (e.g. Season 3 -> Season 4).
-      // - If the latest season had NO match results (only fixtures or no matches) and was permanently deleted,
-      //   the new season reuses the SAME season number (e.g. Season 3 was deleted with only fixtures -> new season is Season 3).
+      // - Find all existing seasons in this league, ordered by seasonNumber DESC.
+      // - Any season that was permanently deleted (deleted: true) AND had 0 match results
+      //   is an empty/accidental season that should be discarded/reused.
+      // - Find the highest season that is VALID (either NOT deleted, OR has match results > 0).
+      // - Next candidate season number is highestValidNum + 1.
+      // - If no valid seasons exist in the league, candidate is 1.
       const allSeasons = await Season.findAll({
         where: { leagueId },
         order: [['seasonNumber', 'DESC']],
@@ -593,24 +596,22 @@ export const createNewSeason = async (ctx: Context) => {
       });
 
       let candidate = 1;
-      if (allSeasons.length > 0) {
-        const topSeason = allSeasons[0];
-        const topNum = Number(topSeason.seasonNumber || 1);
-        const topResCount = await countSeasonResultMatches(leagueId, topSeason.id, tx);
+      let foundValid = false;
 
-        if (topResCount > 0) {
-          // Latest season had match results -> next season increments
-          candidate = topNum + 1;
-        } else {
-          // Latest season had NO match results (only fixtures or no matches)
-          if (Boolean((topSeason as any).deleted)) {
-            // It was permanently deleted -> reuse the SAME season number!
-            candidate = topNum;
-          } else {
-            // Not deleted, but being ended/replaced -> increment
-            candidate = topNum + 1;
-          }
+      for (const s of allSeasons) {
+        const sNum = Number(s.seasonNumber || 1);
+        const isDeleted = Boolean((s as any).deleted);
+        const resCount = await countSeasonResultMatches(leagueId, s.id, tx);
+
+        if (!isDeleted || resCount > 0) {
+          candidate = sNum + 1;
+          foundValid = true;
+          break;
         }
+      }
+
+      if (!foundValid) {
+        candidate = 1;
       }
 
       // Clean up any soft-deleted seasons with seasonNumber >= candidate that had 0 match results,
