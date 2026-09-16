@@ -14,6 +14,7 @@ import { MatchPlayerLayout } from '../models/MatchPlayerLayout';
 import { checkLeagueCompletion, checkLeagueCompletionBulk } from '../utils/leagueCompletion';
 import { invalidateCache as invalidateServerCache } from '../middleware/memoryCache';
 import { registeredUserWhere, isGuestUserRecord } from '../utils/playerIdentity';
+import { recalculateMatchXPForCurrentState } from './matchController.full';
 
 const { League, Match, User, MatchGuest } = models;
 
@@ -4821,6 +4822,22 @@ export const updateMatchInLeague = async (ctx: Context) => {
         } as any);
       } catch (predictionErr) {
         console.warn('Could not snapshot match team-balance on update:', predictionErr);
+      }
+    }
+
+    // If match result was published/uploaded or has scores, recalculate XP for all participants
+    // so any newly added, removed, or moved players have their win/draw/lose XP updated immediately
+    const isCompletedMatch =
+      FINALIZED_MATCH_STATUSES.has(String(match.status || '')) ||
+      (match.homeTeamGoals !== null && match.homeTeamGoals !== undefined &&
+       match.awayTeamGoals !== null && match.awayTeamGoals !== undefined &&
+       String(match.status || '').toUpperCase() !== 'SCHEDULED');
+
+    if (isCompletedMatch) {
+      try {
+        await recalculateMatchXPForCurrentState(matchId, [...homeIds, ...awayIds]);
+      } catch (xpErr) {
+        console.error('Could not recalculate match XP after updateMatchInLeague:', xpErr);
       }
     }
 

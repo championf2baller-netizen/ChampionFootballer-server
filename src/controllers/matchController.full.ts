@@ -625,17 +625,18 @@ async function getTeamResultForUserInMatch(
   matchId: string,
   homeGoals: number,
   awayGoals: number
-): Promise<'win' | 'draw' | 'lose'> {
-  if (homeGoals === awayGoals) return 'draw';
+): Promise<'win' | 'draw' | 'lose' | null> {
   const team = await getPlayerTeamForMatch(userId, matchId);
+  if (!team) return null;
+  if (homeGoals === awayGoals) return 'draw';
   if (team === 'home') return homeGoals > awayGoals ? 'win' : 'lose';
   if (team === 'away') return awayGoals > homeGoals ? 'win' : 'lose';
-  return 'lose';
+  return null;
 }
 
 // Recompute canonical XP for this match from current stats + votes + captain picks.
 // This keeps users.xp and match_statistics.xp_awarded in sync whenever votes/scores change.
-async function recalculateMatchXPForCurrentState(matchId: string, ensureUserIds: Array<string | null | undefined> = []): Promise<void> {
+export async function recalculateMatchXPForCurrentState(matchId: string, ensureUserIds: Array<string | null | undefined> = []): Promise<void> {
   const participantIds = new Set<string>(
     ensureUserIds
       .map((v) => String(v || '').trim())
@@ -718,6 +719,7 @@ async function recalculateMatchXPForCurrentState(matchId: string, ensureUserIds:
     attributes: [
       'id',
       'leagueId',
+      'status',
       'homeTeamGoals',
       'awayTeamGoals',
       'homeDefensiveImpactId',
@@ -727,6 +729,16 @@ async function recalculateMatchXPForCurrentState(matchId: string, ensureUserIds:
     ]
   });
   if (!match) return;
+
+  const isFinalized =
+    FINALIZED_MATCH_STATUSES.has(String(match.status || '')) ||
+    (match.homeTeamGoals !== null && match.homeTeamGoals !== undefined &&
+     match.awayTeamGoals !== null && match.awayTeamGoals !== undefined &&
+     String(match.status || '').toUpperCase() !== 'SCHEDULED');
+
+  if (!isFinalized) {
+    return;
+  }
 
   const homeGoals = Number(match.homeTeamGoals || 0);
   const awayGoals = Number(match.awayTeamGoals || 0);
@@ -845,36 +857,52 @@ async function recalculateMatchXPForCurrentState(matchId: string, ensureUserIds:
       let nextAwarded = 0;
       if (teamResult === 'win') nextAwarded += xpPointsTable.winningTeam;
       else if (teamResult === 'draw') nextAwarded += xpPointsTable.draw;
-      else nextAwarded += xpPointsTable.losingTeam;
+      else if (teamResult === 'lose') nextAwarded += xpPointsTable.losingTeam;
 
-      nextAwarded += goals * (teamResult === 'win' ? xpPointsTable.goal.win : xpPointsTable.goal.lose);
-      nextAwarded += assists * (teamResult === 'win' ? xpPointsTable.assist.win : xpPointsTable.assist.lose);
-      nextAwarded += cleanSheets * xpPointsTable.cleanSheet;
+      if (teamResult) {
+        nextAwarded += goals * (teamResult === 'win' ? xpPointsTable.goal.win : xpPointsTable.goal.lose);
+        nextAwarded += assists * (teamResult === 'win' ? xpPointsTable.assist.win : xpPointsTable.assist.lose);
+        nextAwarded += cleanSheets * xpPointsTable.cleanSheet;
 
-      const voteCount = voteCountByPlayer[userId] || 0;
-      nextAwarded += voteCount * (teamResult === 'win' ? xpPointsTable.motmVote.win : xpPointsTable.motmVote.lose);
+        const voteCount = voteCountByPlayer[userId] || 0;
+        nextAwarded += voteCount * (teamResult === 'win' ? xpPointsTable.motmVote.win : xpPointsTable.motmVote.lose);
 
-      if (motmWinnerId && motmWinnerId === userId) {
-        nextAwarded += teamResult === 'win' ? xpPointsTable.motm.win : xpPointsTable.motm.lose;
-      }
+        if (motmWinnerId && motmWinnerId === userId) {
+          nextAwarded += teamResult === 'win' ? xpPointsTable.motm.win : xpPointsTable.motm.lose;
+        }
 
-      const isDefensivePick = defenceVotedSet.has(userId);
-      if (isDefensivePick) {
-        nextAwarded += teamResult === 'win' ? xpPointsTable.defensiveImpact.win : xpPointsTable.defensiveImpact.lose;
-      }
+        const isDefensivePick = defenceVotedSet.has(userId);
+        if (isDefensivePick) {
+          nextAwarded += teamResult === 'win' ? xpPointsTable.defensiveImpact.win : xpPointsTable.defensiveImpact.lose;
+        }
 
-      const isMentalityPick = influenceVotedSet.has(userId);
-      if (isMentalityPick) {
-        nextAwarded += teamResult === 'win' ? xpPointsTable.mentality.win : xpPointsTable.mentality.lose;
+        const isMentalityPick = influenceVotedSet.has(userId);
+        if (isMentalityPick) {
+          nextAwarded += teamResult === 'win' ? xpPointsTable.mentality.win : xpPointsTable.mentality.lose;
+        }
       }
 
       nextAwarded = Math.max(0, Math.round(nextAwarded));
-      if (nextAwarded === prevAwarded) continue;
+      if (nextAwarded === prevAwarded && teamResult) continue;
 
-      await sequelize.query(
-        `UPDATE match_statistics SET xp_awarded = $1, updated_at = NOW() WHERE match_id = $2 AND user_id = $3`,
-        { bind: [nextAwarded, matchId, userId], transaction: tx }
-      );
+      if (!teamResult) {
+        if (goals === 0 && assists === 0) {
+          await sequelize.query(
+            `DELETE FROM match_statistics WHERE match_id = $1 AND user_id = $2`,
+            { bind: [matchId, userId], transaction: tx }
+          );
+        } else {
+          await sequelize.query(
+            `UPDATE match_statistics SET xp_awarded = 0, updated_at = NOW() WHERE match_id = $1 AND user_id = $2`,
+            { bind: [matchId, userId], transaction: tx }
+          );
+        }
+      } else {
+        await sequelize.query(
+          `UPDATE match_statistics SET xp_awarded = $1, updated_at = NOW() WHERE match_id = $2 AND user_id = $3`,
+          { bind: [nextAwarded, matchId, userId], transaction: tx }
+        );
+      }
 
       const userRow = await sequelize.query<{ xp: number }>(
         `SELECT xp FROM users WHERE id = $1 FOR UPDATE`,
@@ -2457,11 +2485,18 @@ export const updateMatch = async (ctx: Context) => {
 
     await match.update(updateData);
 
-    if (includesScoreUpdate) {
+    const isCompletedMatch =
+      includesScoreUpdate ||
+      FINALIZED_MATCH_STATUSES.has(String(match.status || '')) ||
+      (match.homeTeamGoals !== null && match.homeTeamGoals !== undefined &&
+       match.awayTeamGoals !== null && match.awayTeamGoals !== undefined &&
+       String(match.status || '').toUpperCase() !== 'SCHEDULED');
+
+    if (isCompletedMatch) {
       try {
         await recalculateMatchXPForCurrentState(id);
       } catch (recalcErr) {
-        console.error('Could not recalculate match XP after match edit score change:', recalcErr);
+        console.error('Could not recalculate match XP after match edit:', recalcErr);
       }
     }
 
