@@ -436,6 +436,7 @@ const fetchUserLeaguesBasic = async (userId: string): Promise<LeagueListRow[]> =
       LEFT JOIN "LeagueAdmin" la
         ON la."leagueId" = l.id
       WHERE l.id IS NOT NULL
+        AND COALESCE(l.archived, false) = false
         AND (lm."userId" = :userId OR la."userId" = :userId)
       ORDER BY l."createdAt" DESC
     `,
@@ -479,13 +480,14 @@ const fetchAllLeaguesAdminBasic = async (): Promise<LeagueListRow[]> => {
         (SELECT TRIM(COALESCE(u."firstName", '') || ' ' || COALESCE(u."lastName", '')) 
          FROM "users" u 
          WHERE u.id = COALESCE(
-           (SELECT "userId" FROM "LeagueAdmin" la3 WHERE la3."leagueId" = l.id LIMIT 1),
-           (SELECT "userId" FROM "LeagueMember" lm4 WHERE lm4."leagueId" = l.id ORDER BY "createdAt" ASC LIMIT 1)
+            (SELECT "userId" FROM "LeagueAdmin" la3 WHERE la3."leagueId" = l.id LIMIT 1),
+            (SELECT "userId" FROM "LeagueMember" lm4 WHERE lm4."leagueId" = l.id ORDER BY "createdAt" ASC LIMIT 1)
          ) LIMIT 1) AS "adminName",
         (SELECT COUNT(*)::int FROM "LeagueMember" lm2 JOIN "users" u_count ON lm2."userId" = u_count.id WHERE lm2."leagueId" = l.id AND COALESCE(u_count.email, '') NOT ILIKE '%guest%' AND COALESCE(u_count.email, '') NOT ILIKE '%@local.invalid%' AND COALESCE(u_count.provider, '') != 'guest') AS "memberCount",
         (SELECT COUNT(*)::int FROM "Matches" m WHERE m."leagueId" = l.id) AS "totalMatchCount"
       FROM "Leagues" l
       WHERE l.id IS NOT NULL
+        AND COALESCE(l.archived, false) = false
       ORDER BY l."createdAt" DESC
     `,
 
@@ -515,14 +517,15 @@ const deriveLeagueLifecycle = (
   active: boolean,
   archived: boolean,
   computedCompleted?: boolean,
-  computedLocked?: boolean
+  computedLocked?: boolean,
+  hasMatches: boolean = true
 ) => {
-  const manualCompleted = !archived && active === false;
+  const manualCompleted = !archived && active === false && hasMatches;
   const isCompleted = Boolean(computedCompleted) || manualCompleted;
   const isLocked = Boolean(computedLocked) || manualCompleted;
   const status: 'active' | 'inactive' | 'completed' = archived
     ? 'inactive'
-    : (active ? 'active' : 'completed');
+    : (active ? 'active' : (isCompleted ? 'completed' : 'inactive'));
 
   return {
     status,
@@ -2263,67 +2266,77 @@ export const getUserLeagues = async (ctx: Context) => {
   }
 
   try {
-    const leaguesBasic = await fetchUserLeaguesBasic(String(userId));
+    const user = await User.findByPk(userId);
+    const isSuperAdmin = Boolean(user?.isAdmin || user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN');
+
+    const leaguesBasic = isSuperAdmin 
+      ? await fetchAllLeaguesAdminBasic()
+      : await fetchUserLeaguesBasic(String(userId));
     const completionByLeague = await checkLeagueCompletionBulk(leaguesBasic.map((league) => league.id));
 
     const result = {
       success: true,
-      leagues: leaguesBasic.map((league) => {
-        const completionInfo = completionByLeague[league.id];
-        const lifecycle = deriveLeagueLifecycle(
-          league.active,
-          league.archived,
-          completionInfo?.isCompleted,
-          false
-        );
-        return {
-          id: league.id,
-          name: league.name,
-          active: league.active,
-          archived: league.archived,
-          image: league.image,
-          maxGames: league.maxGames,
-          status: lifecycle.status,
-          createdAt: league.createdAt,
-          isComplete: lifecycle.isComplete,
-          isCompleted: lifecycle.isCompleted,
-          isLocked: lifecycle.isLocked,
-          adminId: league.adminId,
-          adminName: league.adminName,
-          memberCount: league.memberCount,
-          totalMatchCount: league.totalMatchCount ?? 0,
-          computedStatus: {
-            isCompleted: lifecycle.isCompleted,
+      leagues: leaguesBasic
+        .filter((league) => !league.archived)
+        .map((league) => {
+          const completionInfo = completionByLeague[league.id];
+          const hasMatches = (league.totalMatchCount ?? 0) > 0 || (completionInfo?.totalCompletedMatches ?? 0) > 0;
+          const lifecycle = deriveLeagueLifecycle(
+            league.active,
+            league.archived,
+            completionInfo?.isCompleted,
+            false,
+            hasMatches
+          );
+          return {
+            id: league.id,
+            name: league.name,
+            active: league.active,
+            archived: league.archived,
+            image: league.image,
+            maxGames: league.maxGames,
+            status: lifecycle.status,
+            createdAt: league.createdAt,
             isComplete: lifecycle.isComplete,
-            locked: lifecycle.locked,
-            activeSeasonCompleted: Boolean(completionInfo?.activeSeasonCompleted),
-            allStatsSubmitted: Boolean(completionInfo?.allStatsSubmitted),
-            matchesPlayed: completionInfo?.totalCompletedMatches ?? 0,
-            gamesPlayed: completionInfo?.totalCompletedMatches ?? 0,
+            isCompleted: lifecycle.isCompleted,
+            isLocked: lifecycle.isLocked,
+            adminId: league.adminId,
+            adminName: league.adminName,
+            memberCount: league.memberCount,
             totalMatchCount: league.totalMatchCount ?? 0,
-            maxGames: league.maxGames ?? 0,
-            totalMaxGames: completionInfo?.totalMaxGames ?? 0,
-            missing: completionInfo?.missing ?? [],
-            seasons: (completionInfo?.seasons ?? []).filter(s => !(s as any).deleted).map(s => ({
-              seasonId: s.seasonId,
-              seasonNumber: s.seasonNumber,
-              seasonName: s.seasonName,
-              isActive: s.isActive,
-              maxGames: s.maxGames,
-              completedMatches: s.completedMatches,
-              matchCount: (s as any).matchCount ?? (s as any).totalMatches ?? s.completedMatches ?? 0,
-              totalMatches: (s as any).totalMatches ?? (s as any).matchCount ?? s.completedMatches ?? 0,
-              playerCount: (s as any).playerCount ?? 0,
-              isCompleted: s.isCompleted,
-              last2MatchesStatsComplete: s.last2MatchesStatsComplete,
-              missingStatsPlayers: s.missingStatsPlayers,
-              inviteCode: s.inviteCode,
-              archived: s.archived,
-              deleted: Boolean((s as any).deleted),
-            })),
-          },
-        };
-      })
+            computedStatus: {
+              isCompleted: lifecycle.isCompleted,
+              isComplete: lifecycle.isComplete,
+              locked: lifecycle.locked,
+              activeSeasonCompleted: Boolean(completionInfo?.activeSeasonCompleted),
+              allStatsSubmitted: Boolean(completionInfo?.allStatsSubmitted),
+              matchesPlayed: completionInfo?.totalCompletedMatches ?? 0,
+              gamesPlayed: completionInfo?.totalCompletedMatches ?? 0,
+              totalMatchCount: league.totalMatchCount ?? 0,
+              maxGames: league.maxGames ?? 0,
+              totalMaxGames: completionInfo?.totalMaxGames ?? 0,
+              missing: completionInfo?.missing ?? [],
+              seasons: (completionInfo?.seasons ?? []).filter(s => !(s as any).deleted).map(s => ({
+                seasonId: s.seasonId,
+                seasonNumber: s.seasonNumber,
+                seasonName: s.seasonName,
+                isActive: s.isActive,
+                maxGames: s.maxGames,
+                completedMatches: s.completedMatches,
+                matchCount: (s as any).matchCount ?? (s as any).totalMatches ?? s.completedMatches ?? 0,
+                totalMatches: (s as any).totalMatches ?? (s as any).matchCount ?? s.completedMatches ?? 0,
+                playerCount: (s as any).playerCount ?? 0,
+                isCompleted: s.isCompleted,
+                last2MatchesStatsComplete: s.last2MatchesStatsComplete,
+                missingStatsPlayers: s.missingStatsPlayers,
+                inviteCode: s.inviteCode,
+                archived: s.archived,
+                deleted: Boolean((s as any).deleted),
+              })),
+            },
+          };
+        })
+        .filter((l) => !l.archived && (l.active === true || l.isCompleted || l.status === 'active' || l.status === 'completed'))
     };
 
     cache.set(cacheKey, result, 120); // Reduced cache time for more accurate completion status

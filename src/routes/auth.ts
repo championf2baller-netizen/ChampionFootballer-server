@@ -879,7 +879,9 @@ router.get("/auth/data", required, async (ctx: CustomContext) => {
           {
             model: League,
             as: 'leagues',
-            attributes: ['id', 'name', 'inviteCode', 'createdAt', 'updatedAt', 'maxGames', 'showPoints', 'active'],
+            where: { archived: false },
+            required: false,
+            attributes: ['id', 'name', 'inviteCode', 'createdAt', 'updatedAt', 'maxGames', 'showPoints', 'active', 'archived'],
             through: { attributes: [] },
             include: [
               {
@@ -900,7 +902,9 @@ router.get("/auth/data", required, async (ctx: CustomContext) => {
           {
             model: League,
             as: 'administeredLeagues',
-            attributes: ['id', 'name', 'inviteCode', 'createdAt', 'updatedAt', 'maxGames', 'showPoints', 'active'],
+            where: { archived: false },
+            required: false,
+            attributes: ['id', 'name', 'inviteCode', 'createdAt', 'updatedAt', 'maxGames', 'showPoints', 'active', 'archived'],
             through: { attributes: [] },
             include: [
               {
@@ -1265,6 +1269,7 @@ router.get("/auth/status", required, async (ctx: CustomContext) => {
         if (typeof (user as any).getLeagues === 'function') {
           joinedLeagues = await (user as any).getLeagues({
             attributes: leagueAttributes as unknown as string[],
+            where: { archived: false },
             joinTableAttributes: [],
             include: [seasonInclude],
           });
@@ -1275,6 +1280,7 @@ router.get("/auth/status", required, async (ctx: CustomContext) => {
           if (typeof (user as any).getLeagues === 'function') {
             joinedLeagues = await (user as any).getLeagues({
               attributes: leagueAttributes as unknown as string[],
+              where: { archived: false },
               joinTableAttributes: [],
             });
           }
@@ -1288,6 +1294,7 @@ router.get("/auth/status", required, async (ctx: CustomContext) => {
         if (typeof (user as any).getAdministeredLeagues === 'function') {
           administeredLeagues = await (user as any).getAdministeredLeagues({
             attributes: leagueAttributes as unknown as string[],
+            where: { archived: false },
             joinTableAttributes: [],
             include: [seasonInclude],
           });
@@ -1298,6 +1305,7 @@ router.get("/auth/status", required, async (ctx: CustomContext) => {
           if (typeof (user as any).getAdministeredLeagues === 'function') {
             administeredLeagues = await (user as any).getAdministeredLeagues({
               attributes: leagueAttributes as unknown as string[],
+              where: { archived: false },
               joinTableAttributes: [],
             });
           }
@@ -1356,6 +1364,10 @@ router.get("/auth/status", required, async (ctx: CustomContext) => {
       const homeTeamMatches = homeTeamMatchIds.map(id => matchesById[id]).filter(Boolean);
       const awayTeamMatches = awayTeamMatchIds.map(id => matchesById[id]).filter(Boolean);
       const availableMatches = availableMatchIds.map(id => (id ? matchesById[id] : undefined)).filter(Boolean);
+
+      // Filter out any archived leagues
+      joinedLeagues = (joinedLeagues || []).filter((l: any) => l && !Boolean(l.archived) && String(l.status || '').toLowerCase() !== 'archived' && String(l.status || '').toLowerCase() !== 'inactive');
+      administeredLeagues = (administeredLeagues || []).filter((l: any) => l && !Boolean(l.archived) && String(l.status || '').toLowerCase() !== 'archived' && String(l.status || '').toLowerCase() !== 'inactive');
 
       // Filter administeredLeagues to those where the user is still a member
       const memberLeagueIds = new Set<string>((joinedLeagues || []).map((l: any) => String(l.id)));

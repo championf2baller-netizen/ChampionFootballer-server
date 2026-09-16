@@ -421,7 +421,8 @@ export const getPlayerProfile = async (ctx: Context) => {
     const cacheYear = typeof year === 'string' && year.trim() && year !== 'all' ? year.trim() : 'all';
 
     const cacheKey = `player_profile_${id}_${cacheLeagueId}_${cacheYear}`;
-    const cached = cache.get(cacheKey);
+    const hasForceRefresh = Boolean(ctx.query._t || ctx.query.bust || ctx.query.refresh);
+    const cached = hasForceRefresh ? null : cache.get(cacheKey);
     if (cached) {
       ctx.body = cached;
       return;
@@ -433,7 +434,9 @@ export const getPlayerProfile = async (ctx: Context) => {
       include: [{
         model: LeagueModel,
         as: 'leagues',
-        attributes: ['id', 'name', 'image', 'createdAt', 'updatedAt']
+        where: { archived: false },
+        required: false,
+        attributes: ['id', 'name', 'image', 'createdAt', 'updatedAt', 'active', 'archived']
       }]
     });
 
@@ -594,12 +597,15 @@ export const getPlayerProfile = async (ctx: Context) => {
     const playerLeagues = (player as any).leagues || [];
 
     playerLeagues.forEach((league: any) => {
+      if (Boolean(league?.archived) || String(league?.status || '').toLowerCase() === 'archived' || String(league?.status || '').toLowerCase() === 'inactive') return;
       leaguesMap.set(league.id, {
         id: league.id,
         name: league.name,
         image: league.image,
         createdAt: league.createdAt,
         updatedAt: league.updatedAt,
+        active: league.active,
+        archived: Boolean(league.archived),
         matches: []
       });
     });
@@ -611,11 +617,8 @@ export const getPlayerProfile = async (ctx: Context) => {
 
       const leagueId = match.leagueId;
       if (!leaguesMap.has(leagueId)) {
-        leaguesMap.set(leagueId, {
-          id: leagueId,
-          name: 'League',
-          matches: []
-        });
+        // Skip if league is not in player's non-archived leagues
+        return;
       }
 
       const isHomePlayer = match.playerTeam === 'home';
@@ -666,9 +669,11 @@ export const getPlayerProfile = async (ctx: Context) => {
       });
     });
 
-    const leagues = Array.from(leaguesMap.values()).sort((a: any, b: any) =>
-      String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' })
-    );
+    const leagues = Array.from(leaguesMap.values())
+      .filter((l: any) => !Boolean(l.archived) && (l.active === true || (Array.isArray(l.matches) && l.matches.length > 0)))
+      .sort((a: any, b: any) =>
+        String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' })
+      );
     const validYears = [...new Set(
       allStats
         .map((s: any) => s.match?.date ? new Date(s.match.date).getFullYear() : null)
