@@ -1529,8 +1529,25 @@ export const getLeagueMatches = async (ctx: Context) => {
     const user = await User.findByPk(userId);
     const isSuperAdmin = Boolean(user?.isAdmin || user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN');
 
-    const isMember = (league as any).members?.some((m: any) => String(m.id) === userId);
-    const isLeagueAdmin = (league as any).administeredLeagues?.some((a: any) => String(a.id) === userId);
+    let isMember = (league as any).members?.some((m: any) => String(m.id) === userId);
+    let isLeagueAdmin = (league as any).administeredLeagues?.some((a: any) => String(a.id) === userId);
+
+    if (!isLeagueAdmin) {
+      const directResult = await (League as any).sequelize.query(
+        'SELECT "userId" FROM "LeagueAdmin" WHERE "leagueId" = :leagueId AND "userId" = :userId LIMIT 1',
+        { replacements: { leagueId: id, userId }, type: (League as any).sequelize.QueryTypes.SELECT }
+      );
+      isLeagueAdmin = Array.isArray(directResult) && directResult.length > 0;
+    }
+
+    if (!isMember) {
+      const directMember = await (League as any).sequelize.query(
+        'SELECT "userId" FROM "LeagueMember" WHERE "leagueId" = :leagueId AND "userId" = :userId LIMIT 1',
+        { replacements: { leagueId: id, userId }, type: (League as any).sequelize.QueryTypes.SELECT }
+      );
+      isMember = Array.isArray(directMember) && directMember.length > 0;
+    }
+
     const isAdmin = isLeagueAdmin || isSuperAdmin;
 
     if (!isMember && !isAdmin) {
@@ -2294,6 +2311,9 @@ export const getUserLeagues = async (ctx: Context) => {
               isActive: s.isActive,
               maxGames: s.maxGames,
               completedMatches: s.completedMatches,
+              matchCount: (s as any).matchCount ?? (s as any).totalMatches ?? s.completedMatches ?? 0,
+              totalMatches: (s as any).totalMatches ?? (s as any).matchCount ?? s.completedMatches ?? 0,
+              playerCount: (s as any).playerCount ?? 0,
               isCompleted: s.isCompleted,
               last2MatchesStatsComplete: s.last2MatchesStatsComplete,
               missingStatsPlayers: s.missingStatsPlayers,

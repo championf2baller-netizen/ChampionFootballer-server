@@ -31,6 +31,9 @@ export interface SeasonCompletionInfo {
   isActive: boolean;
   maxGames: number;
   completedMatches: number;
+  matchCount?: number;
+  totalMatches?: number;
+  playerCount?: number;
   isCompleted: boolean;
   last2MatchesStatsComplete: boolean;
   missingStatsPlayers: string[]; // player IDs who haven't submitted stats in last 2 matches
@@ -256,6 +259,67 @@ const getCompletedMatchCountsBySeason = async (
   return countsBySeason;
 };
 
+const getTotalMatchCountsBySeason = async (
+  leagueId: string,
+  seasonIds: string[]
+): Promise<Map<string, number>> => {
+  const countsBySeason = new Map<string, number>();
+  if (!seasonIds.length) return countsBySeason;
+
+  const sequelize = Match.sequelize!;
+  const rows = await sequelize.query<{ seasonId: string; totalCount: number }>(
+    `
+      SELECT "seasonId", COUNT(*)::int AS "totalCount"
+      FROM "Matches"
+      WHERE "leagueId" = :leagueId
+        AND "seasonId" IN (:seasonIds)
+        AND COALESCE(deleted, false) = false
+      GROUP BY "seasonId"
+    `,
+    {
+      replacements: { leagueId, seasonIds },
+      type: QueryTypes.SELECT,
+    }
+  );
+
+  rows.forEach((row) => {
+    countsBySeason.set(String(row.seasonId), Number(row.totalCount) || 0);
+  });
+
+  return countsBySeason;
+};
+
+const getPlayerCountsBySeason = async (
+  seasonIds: string[]
+): Promise<Map<string, number>> => {
+  const countsBySeason = new Map<string, number>();
+  if (!seasonIds.length) return countsBySeason;
+
+  const sequelize = Season.sequelize!;
+  try {
+    const rows = await sequelize.query<{ seasonId: string; playerCount: number }>(
+      `
+        SELECT "seasonId", COUNT(*)::int AS "playerCount"
+        FROM "SeasonPlayers"
+        WHERE "seasonId" IN (:seasonIds)
+        GROUP BY "seasonId"
+      `,
+      {
+        replacements: { seasonIds },
+        type: QueryTypes.SELECT,
+      }
+    );
+
+    rows.forEach((row) => {
+      countsBySeason.set(String(row.seasonId), Number(row.playerCount) || 0);
+    });
+  } catch (err) {
+    console.warn('[leagueCompletion] getPlayerCountsBySeason failed, continuing with 0', err);
+  }
+
+  return countsBySeason;
+};
+
 /**
  * Check if a specific season is completed.
  * Season completed = maxGames reached AND last 2 matches have all stats submitted.
@@ -342,7 +406,11 @@ export const checkLeagueCompletion = async (
   });
 
   const seasonIds = seasons.map((season) => String(season.id));
-  const completedCountBySeason = await getCompletedMatchCountsBySeason(leagueKey, seasonIds);
+  const [completedCountBySeason, totalMatchCountBySeason, playerCountBySeason] = await Promise.all([
+    getCompletedMatchCountsBySeason(leagueKey, seasonIds),
+    getTotalMatchCountsBySeason(leagueKey, seasonIds),
+    getPlayerCountsBySeason(seasonIds),
+  ]);
 
   const seasonInfos: SeasonCompletionInfo[] = [];
   let totalCompletedMatches = 0;
@@ -382,6 +450,9 @@ export const checkLeagueCompletion = async (
     totalCompletedMatches += completedCount;
     totalMaxGames += maxGames;
 
+    const totalSeasonMatches = totalMatchCountBySeason.get(String(season.id)) ?? completedCount;
+    const seasonPlayerCount = playerCountBySeason.get(String(season.id)) ?? 0;
+
     seasonInfos.push({
       seasonId: season.id,
       seasonNumber: season.seasonNumber,
@@ -389,6 +460,9 @@ export const checkLeagueCompletion = async (
       isActive: season.isActive,
       maxGames,
       completedMatches: completedCount,
+      matchCount: totalSeasonMatches,
+      totalMatches: totalSeasonMatches,
+      playerCount: seasonPlayerCount,
       isCompleted,
       last2MatchesStatsComplete: statsCheck.allComplete,
       missingStatsPlayers: statsCheck.missingPlayerIds,

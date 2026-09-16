@@ -319,7 +319,10 @@ export const getAllSeasons = async (ctx: Context) => {
           endDate: season.endDate,
           maxGames: season.maxGames,
           showPoints: season.showPoints,
+          players: players,
           playerCount: players.length,
+          matchCount: matchCountBySeasonId.get(String(season.id)) || 0,
+          totalMatches: matchCountBySeasonId.get(String(season.id)) || 0,
           createdAt: season.createdAt,
           isMember: true
         };
@@ -364,7 +367,10 @@ export const getAllSeasons = async (ctx: Context) => {
           endDate: season.endDate,
           maxGames: season.maxGames,
           showPoints: season.showPoints,
+          players: refreshedPlayers,
           playerCount: refreshedPlayers.length,
+          matchCount: matchCountBySeasonId.get(String(season.id)) || 0,
+          totalMatches: matchCountBySeasonId.get(String(season.id)) || 0,
           createdAt: season.createdAt,
           isMember: true
         };
@@ -383,7 +389,10 @@ export const getAllSeasons = async (ctx: Context) => {
         endDate: season.endDate,
         maxGames: season.maxGames,
         showPoints: season.showPoints,
+        players: players,
         playerCount: players.length,
+        matchCount: matchCountBySeasonId.get(String(season.id)) || 0,
+        totalMatches: matchCountBySeasonId.get(String(season.id)) || 0,
         createdAt: season.createdAt,
         isMember: false
       };
