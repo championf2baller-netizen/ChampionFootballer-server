@@ -597,7 +597,7 @@ export const getPlayerProfile = async (ctx: Context) => {
     const playerLeagues = (player as any).leagues || [];
 
     playerLeagues.forEach((league: any) => {
-      if (Boolean(league?.archived) || String(league?.status || '').toLowerCase() === 'archived' || String(league?.status || '').toLowerCase() === 'inactive') return;
+      if (Boolean(league?.archived) || String(league?.status || '').toLowerCase() === 'archived') return;
       leaguesMap.set(league.id, {
         id: league.id,
         name: league.name,
@@ -605,7 +605,7 @@ export const getPlayerProfile = async (ctx: Context) => {
         createdAt: league.createdAt,
         updatedAt: league.updatedAt,
         active: league.active,
-        archived: Boolean(league.archived),
+        archived: Boolean(league.archived), 
         matches: []
       });
     });
@@ -669,11 +669,20 @@ export const getPlayerProfile = async (ctx: Context) => {
       });
     });
 
+    const getLeagueCreatedTimestamp = (l: any): number => {
+      if (!l || !l.createdAt) return 0;
+      const t = new Date(l.createdAt).getTime();
+      return !isNaN(t) ? t : 0;
+    };
+
     const leagues = Array.from(leaguesMap.values())
-      .filter((l: any) => !Boolean(l.archived) && (l.active === true || (Array.isArray(l.matches) && l.matches.length > 0)))
-      .sort((a: any, b: any) =>
-        String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' })
-      );
+      .filter((l: any) => !Boolean(l.archived) && String(l.status || '').toLowerCase() !== 'archived')
+      .sort((a: any, b: any) => {
+        const tsA = getLeagueCreatedTimestamp(a);
+        const tsB = getLeagueCreatedTimestamp(b);
+        if (tsA !== tsB) return tsB - tsA;
+        return String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' });
+      });
     const validYears = [...new Set(
       allStats
         .map((s: any) => s.match?.date ? new Date(s.match.date).getFullYear() : null)
