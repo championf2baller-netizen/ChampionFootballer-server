@@ -436,7 +436,6 @@ const fetchUserLeaguesBasic = async (userId: string): Promise<LeagueListRow[]> =
       LEFT JOIN "LeagueAdmin" la
         ON la."leagueId" = l.id
       WHERE l.id IS NOT NULL
-        AND COALESCE(l.archived, false) = false
         AND (lm."userId" = :userId OR la."userId" = :userId)
       ORDER BY l."createdAt" DESC
     `,
@@ -2277,7 +2276,6 @@ export const getUserLeagues = async (ctx: Context) => {
     const result = {
       success: true,
       leagues: leaguesBasic
-        .filter((league) => !league.archived)
         .map((league) => {
           const completionInfo = completionByLeague[league.id];
           const hasMatches = (league.totalMatchCount ?? 0) > 0 || (completionInfo?.totalCompletedMatches ?? 0) > 0;
@@ -2336,7 +2334,7 @@ export const getUserLeagues = async (ctx: Context) => {
             },
           };
         })
-        .filter((l) => !l.archived && (l.active === true || l.isCompleted || l.status === 'active' || l.status === 'completed'))
+        .filter((l) => Boolean(l.archived) || l.active === true || Boolean(l.isCompleted) || String(l.status) === 'active' || String(l.status) === 'completed' || String(l.status) === 'archived')
     };
 
     cache.set(cacheKey, result, 120); // Reduced cache time for more accurate completion status
@@ -3759,7 +3757,7 @@ export const deleteLeague = async (ctx: Context) => {
   const queryMode = typeof ctx.query?.mode === 'string' ? ctx.query.mode.trim().toLowerCase() : '';
   const bodyModeRaw = (ctx.request as any)?.body?.mode;
   const bodyMode = typeof bodyModeRaw === 'string' ? bodyModeRaw.trim().toLowerCase() : '';
-  const softDelete = queryMode === 'soft' || bodyMode === 'soft';
+  let softDelete = queryMode === 'soft' || bodyMode === 'soft';
 
   if (!ctx.state.user) {
     ctx.throw(401, 'Unauthorized');
@@ -3789,21 +3787,15 @@ export const deleteLeague = async (ctx: Context) => {
     const totalMatchesCreated = await Match.count({ where: { leagueId: id } });
     const hasAnyMatchesCreated = totalMatchesCreated > 0;
 
-    if (hasAnyMatchesCreated && !softDelete) {
-      ctx.status = 409;
-      ctx.body = {
-        success: false,
-        message: 'This league already has matches and cannot be permanently deleted. Please archive it from League Settings.',
-      };
-      return;
+    // Leagues with matches are automatically archived (soft delete) to protect player history
+    if (hasAnyMatchesCreated) {
+      softDelete = true;
     }
 
     if (softDelete) {
       await league.update({ active: false, archived: true });
-      if (members.length > 0) {
-        await (league as any).setMembers([]);
-        await (league as any).setAdministeredLeagues([]);
-      }
+      await Season.update({ archived: true }, { where: { leagueId: id } });
+      // Keep members and admins intact so the archived league remains visible in history
 
       try {
         const notifications = members.map((m: any) => ({
