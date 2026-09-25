@@ -1562,8 +1562,22 @@ export const submitMatchStats = async (ctx: Context) => {
       // Determine target user: if playerId provided, use it; otherwise use current user
       const targetPlayerId = stat.playerId || currentUserId;
       const userId = await resolveTargetUserIdForMatch(targetPlayerId, matchId);
-      const safeGoals = Math.max(0, Number(stat.goals) || 0);
-      const safeAssists = Math.max(0, Number(stat.assists) || 0);
+
+      // Enforce team goals limit if match score is set (e.g. 0:0 score enforces 0 goals max)
+      const homeTeamUsers = await (match as any).getHomeTeamUsers();
+      const isHomeUser = homeTeamUsers.some((u: any) => String(u.id) === String(userId));
+      const teamGoalsCap = isHomeUser
+        ? (match.homeTeamGoals !== null && match.homeTeamGoals !== undefined ? Math.max(0, Number(match.homeTeamGoals)) : null)
+        : (match.awayTeamGoals !== null && match.awayTeamGoals !== undefined ? Math.max(0, Number(match.awayTeamGoals)) : null);
+
+      let safeGoals = Math.max(0, Number(stat.goals) || 0);
+      let safeAssists = Math.max(0, Number(stat.assists) || 0);
+
+      if (teamGoalsCap !== null) {
+        safeGoals = Math.min(safeGoals, teamGoalsCap);
+        safeAssists = Math.min(safeAssists, teamGoalsCap);
+      }
+
       const safeCleanSheets = Math.max(0, Number(stat.cleanSheets || stat.cleanSheet) || 0);
       const safePenalties = Math.max(0, Number(stat.penalties) || 0);
       const safeFreeKicks = Math.max(0, Number(stat.freeKicks) || 0);

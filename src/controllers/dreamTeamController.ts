@@ -312,21 +312,48 @@ export const getDreamTeam = async (ctx: Context) => {
     const midfielderSort = (a: any, b: any) => sortByXPAndScore(a, b, 'assists');
     const forwardSort = (a: any, b: any) => sortByXPAndScore(a, b, 'goals');
 
-    // Client 5-a-side layout specs: 2 Best Defenders, 2 Best Midfielders, 1 Top Striker, 1 GK
-    const positions = {
-      Goalkeeper: eligiblePlayers.filter(p => getPositionType(p) === 'Goalkeeper').sort(goalkeeperSort).slice(0, 1),
-      Defender: eligiblePlayers.filter(p => getPositionType(p) === 'Defender').sort(defenderSort).slice(0, 2),
-      Midfielder: eligiblePlayers.filter(p => getPositionType(p) === 'Midfielder').sort(midfielderSort).slice(0, 2),
-      Forward: eligiblePlayers.filter(p => getPositionType(p) === 'Forward').sort(forwardSort).slice(0, 1)
+    // Sort all eligible players by overall rank (XP & score) from #1 down
+    const rankedPlayers = [...eligiblePlayers].sort((a: any, b: any) => sortByXPAndScore(a, b));
+
+    const selectedDreamTeam = {
+      goalkeeper: [] as any[],
+      defenders: [] as any[],
+      midfielders: [] as any[],
+      forwards: [] as any[]
     };
+
+    let totalSelected = 0;
+
+    // Pick top-ranked players in order (#1 first, #2 second, etc.) up to 5 total players.
+    // If a player's position category is already filled, skip them and pick the next player with an available position.
+    for (const player of rankedPlayers) {
+      if (totalSelected >= 5) break;
+
+      const posType = getPositionType(player);
+      if (!posType) continue;
+
+      if (posType === 'Goalkeeper' && selectedDreamTeam.goalkeeper.length < 1) {
+        selectedDreamTeam.goalkeeper.push(player);
+        totalSelected++;
+      } else if (posType === 'Defender' && selectedDreamTeam.defenders.length < 2) {
+        selectedDreamTeam.defenders.push(player);
+        totalSelected++;
+      } else if (posType === 'Midfielder' && selectedDreamTeam.midfielders.length < 2) {
+        selectedDreamTeam.midfielders.push(player);
+        totalSelected++;
+      } else if (posType === 'Forward' && selectedDreamTeam.forwards.length < 1) {
+        selectedDreamTeam.forwards.push(player);
+        totalSelected++;
+      }
+    }
 
     const result = {
       success: true,
       dreamTeam: {
-        goalkeeper: positions.Goalkeeper,
-        defenders: positions.Defender,
-        midfielders: positions.Midfielder,
-        forwards: positions.Forward
+        goalkeeper: selectedDreamTeam.goalkeeper,
+        defenders: selectedDreamTeam.defenders,
+        midfielders: selectedDreamTeam.midfielders,
+        forwards: selectedDreamTeam.forwards
       },
       formation: '2-2-1'
     };
