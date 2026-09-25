@@ -49,6 +49,13 @@ export const getAllPlayers = async (ctx: Context) => {
 
 export const getPlayerById = async (ctx: Context) => {
   const { id } = ctx.params;
+  const cacheKey = `player_by_id_${id}`;
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    ctx.set('X-Cache', 'HIT');
+    ctx.body = cached;
+    return;
+  }
 
   try {
     const player = await UserModel.findByPk(id, {
@@ -58,29 +65,36 @@ export const getPlayerById = async (ctx: Context) => {
           model: LeagueModel,
           as: 'leagues',
           attributes: ['id', 'name', 'image'],
-          through: { attributes: [] }
-        },
-        {
-          model: MatchStatistics,
-          as: 'statistics',
-          attributes: ['id', 'goals', 'assists', 'cleanSheets', 'impact', 'xpAwarded'],
+          through: { attributes: [] },
           required: false
         }
       ]
     });
 
     if (!player) {
-      ctx.throw(404, 'Player not found');
+      ctx.status = 404;
+      ctx.body = {
+        success: false,
+        message: 'Player not found'
+      };
       return;
     }
 
-    ctx.body = {
+    const result = {
       success: true,
       player
     };
-  } catch (error) {
+    cache.set(cacheKey, result, 300);
+    ctx.set('X-Cache', 'MISS');
+    ctx.body = result;
+  } catch (error: any) {
     console.error('Error fetching player:', error);
-    ctx.throw(500, 'Failed to fetch player.');
+    ctx.status = 500;
+    ctx.body = {
+      success: false,
+      message: 'Failed to fetch player.',
+      error: error?.message || 'Database connection timeout'
+    };
   }
 };
 

@@ -289,13 +289,15 @@ router.get('/me/achievements', required, async (ctx) => {
     });
     const statsByMatch = new Map<string, { goals: number; assists: number }>();
     for (const r of userStatsRows as any[]) {
-      statsByMatch.set(String(r.match_id), {
+      const key = String(r.match_id ?? r.matchId ?? '').trim().toLowerCase();
+      if (!key) continue;
+      statsByMatch.set(key, {
         goals: Number(r.goals || 0),
         assists: Number(r.assists || 0),
       });
     }
     const matchIdsFromStats = Array.from(
-      new Set((userStatsRows as any[]).map((r: any) => String(r.match_id || '')).filter((id: string) => id !== ''))
+      new Set((userStatsRows as any[]).map((r: any) => String(r.match_id ?? r.matchId ?? '').trim().toLowerCase()).filter((id: string) => id !== ''))
     );
 
     // Combine scope: MatchStatistics AND join tables (UserHomeMatches/UserAwayMatches)
@@ -327,9 +329,9 @@ router.get('/me/achievements', required, async (ctx) => {
       return;
     }
 
-    // Load RESULT_PUBLISHED matches the user played in
+    const COMPLETED_MATCH_STATUSES = ['RESULT_PUBLISHED', 'RESULT_UPLOADED'];
     const playedMatches = await Match.findAll({
-      where: { id: { [Op.in]: matchIds as any }, status: { [Op.in]: ['RESULT_PUBLISHED', 'RESULT_UPLOADED'] } },
+      where: { id: { [Op.in]: matchIds as any }, status: { [Op.in]: COMPLETED_MATCH_STATUSES } },
       attributes: [
         'id',
         'leagueId',
@@ -368,7 +370,7 @@ router.get('/me/achievements', required, async (ctx) => {
     const [leagueTotalRows, voteRows, homeRows, awayRows] = await Promise.all([
       leagueIds.length > 0
         ? Match.findAll({
-            where: { leagueId: { [Op.in]: leagueIds as any }, status: { [Op.in]: ['RESULT_PUBLISHED', 'RESULT_UPLOADED'] } },
+            where: { leagueId: { [Op.in]: leagueIds as any }, status: { [Op.in]: COMPLETED_MATCH_STATUSES } },
             attributes: ['leagueId', [sequelize.fn('COUNT', sequelize.col('id')), 'totalMatches']],
             group: ['leagueId'],
             raw: true,

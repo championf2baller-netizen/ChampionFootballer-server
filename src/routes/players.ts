@@ -1305,9 +1305,9 @@ router.get('/:id/achievements', required, async (ctx) => {
       return;
     }
 
-    // Load RESULT_PUBLISHED and RESULT_UPLOADED matches the user played in with filters
+    const COMPLETED_MATCH_STATUSES = ['RESULT_PUBLISHED', 'RESULT_UPLOADED'];
     const Match = models.Match;
-    const matchWhere: any = { id: { [Op.in]: matchIds as any }, status: { [Op.in]: ['RESULT_PUBLISHED', 'RESULT_UPLOADED'] } };
+    const matchWhere: any = { id: { [Op.in]: matchIds as any }, status: { [Op.in]: COMPLETED_MATCH_STATUSES } };
     
     // Apply league filter
     if (leagueId && leagueId !== 'all') {
@@ -1363,7 +1363,7 @@ router.get('/:id/achievements', required, async (ctx) => {
     const totalMatchesByLeague: Record<string, number> = {};
     if (leagueIds.length > 0) {
       const countWhere: any = {
-        status: 'RESULT_PUBLISHED',
+        status: { [Op.in]: COMPLETED_MATCH_STATUSES },
         leagueId: { [Op.in]: leagueIds }
       };
       if (selectedSeasonId) {
@@ -1457,7 +1457,9 @@ router.get('/:id/achievements', required, async (ctx) => {
 
     const statsByMatch = new Map<string, { goals: number; assists: number }>();
     for (const r of statsRows as any[]) {
-      statsByMatch.set(String(r.match_id), {
+      const key = String(r.match_id ?? r.matchId ?? '').trim().toLowerCase();
+      if (!key) continue;
+      statsByMatch.set(key, {
         goals: Number(r.goals || 0),
         assists: Number(r.assists || 0),
       });

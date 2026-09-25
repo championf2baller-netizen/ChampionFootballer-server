@@ -99,7 +99,7 @@ const XP_BY_ID: Record<RewardAchievementId, number> = xpAchievements.reduce((acc
 
 const normalizeId = (value: unknown): string => {
   if (value === null || value === undefined) return '';
-  return String(value).trim();
+  return String(value).trim().toLowerCase();
 };
 
 const comparableId = (value: unknown): string => {
@@ -179,7 +179,15 @@ export const toAchievementMatchInput = (match: any): AchievementMatchInput => {
   };
   const toIdArray = (rows: unknown): string[] => {
     if (!Array.isArray(rows)) return [];
-    return rows.map((row) => normalizeId((row as { id?: unknown })?.id)).filter((id) => id !== '');
+    return rows
+      .map((row) => {
+        if (typeof row === 'string' || typeof row === 'number') return normalizeId(row);
+        if (row && typeof row === 'object') {
+          return normalizeId((row as any).id ?? (row as any).userId ?? (row as any).user_id ?? (row as any).playerId ?? row);
+        }
+        return normalizeId(row);
+      })
+      .filter((id) => id !== '');
   };
   const rawVotes = Array.isArray(match?.votes) ? match.votes : [];
   const motmVotes = rawVotes
@@ -200,16 +208,16 @@ export const toAchievementMatchInput = (match: any): AchievementMatchInput => {
 
   return {
     id: normalizeId(match?.id),
-    leagueId: normalizeId(match?.leagueId),
-    homeTeamGoals: toNumber(match?.homeTeamGoals),
-    awayTeamGoals: toNumber(match?.awayTeamGoals),
-    homeTeamUserIds: toIdArray(match?.homeTeamUsers),
-    awayTeamUserIds: toIdArray(match?.awayTeamUsers),
+    leagueId: normalizeId(match?.leagueId ?? match?.league_id),
+    homeTeamGoals: toNumber(match?.homeTeamGoals ?? match?.homeGoals ?? match?.homeScore ?? match?.score?.home ?? match?.home_goals ?? match?.home_score),
+    awayTeamGoals: toNumber(match?.awayTeamGoals ?? match?.awayGoals ?? match?.awayScore ?? match?.score?.away ?? match?.away_goals ?? match?.away_score),
+    homeTeamUserIds: toIdArray(match?.homeTeamUsers ?? match?.homeTeamUserIds ?? match?.homeUsers ?? match?.home_team_user_ids),
+    awayTeamUserIds: toIdArray(match?.awayTeamUsers ?? match?.awayTeamUserIds ?? match?.awayUsers ?? match?.away_team_user_ids),
     votePlayerIds: motmVotes,
     defenceVotedUserIds: defenceVotes,
     influenceVotedUserIds: influenceVotes,
-    homeCaptainId: normalizeId(match?.homeCaptainId) || null,
-    awayCaptainId: normalizeId(match?.awayCaptainId) || null,
+    homeCaptainId: normalizeId(match?.homeCaptainId ?? match?.home_captain_id) || null,
+    awayCaptainId: normalizeId(match?.awayCaptainId ?? match?.away_captain_id) || null,
     homeDefensiveImpactId: normalizeId(match?.homeDefensiveImpactId) || null,
     awayDefensiveImpactId: normalizeId(match?.awayDefensiveImpactId) || null,
     homeMentalityId: normalizeId(match?.homeMentalityId) || null,
@@ -275,7 +283,7 @@ export const computeAchievementState = (
       hasXFactorPick,
       xFactorPicks,
       wonMotmAward,
-      cleanSheetTeam: result === 'W' && oppGoals === 0,
+      cleanSheetTeam: oppGoals === 0,
     });
   }
 

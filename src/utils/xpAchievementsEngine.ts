@@ -11,6 +11,8 @@ import { computeAchievementState, toAchievementMatchInput } from './achievementC
 import { isGuestUserRecord } from './playerIdentity';
 
 // Helper: Get all stats for a user in a league
+const COMPLETED_MATCH_STATUSES = ['RESULT_PUBLISHED', 'RESULT_UPLOADED'];
+
 async function getUserLeagueStats(userId: string, leagueId: string) {
   const stats = await MatchStatistics.findAll({
     where: { user_id: userId },
@@ -18,7 +20,7 @@ async function getUserLeagueStats(userId: string, leagueId: string) {
       {
         model: Match,
         as: 'match',
-        where: { leagueId, status: 'RESULT_PUBLISHED' },
+        where: { leagueId, status: { [Op.in]: COMPLETED_MATCH_STATUSES } },
         include: [
           { model: User as any, as: 'homeTeamUsers', attributes: ['id'] },
           { model: User as any, as: 'awayTeamUsers', attributes: ['id'] },
@@ -85,7 +87,7 @@ async function getUserLeagueStats(userId: string, leagueId: string) {
   const captainMatches = await Match.findAll({
     where: {
       leagueId,
-      status: 'RESULT_PUBLISHED',
+      status: { [Op.in]: COMPLETED_MATCH_STATUSES },
       [Op.or]: [{ homeCaptainId: userId }, { awayCaptainId: userId }]
     }
   });
@@ -108,7 +110,7 @@ async function getUserLeagueStats(userId: string, leagueId: string) {
     include: [{
       model: Match,
       as: 'votedMatch',
-      where: { leagueId, status: 'RESULT_PUBLISHED' }
+      where: { leagueId, status: { [Op.in]: COMPLETED_MATCH_STATUSES } }
     }]
   });
   // You need to process votes to determine if user was MOTM for each match, and count streaks
@@ -188,7 +190,7 @@ export async function calculateAndAwardXPAchievements(userId: string, leagueId?:
     raw: true,
   });
   const matchIdsFromStats = Array.from(
-    new Set((userStatsRows as any[]).map((r: any) => String(r.match_id || '')).filter((id: string) => id !== ''))
+    new Set((userStatsRows as any[]).map((r: any) => String(r.match_id ?? r.matchId ?? '').trim().toLowerCase()).filter((id: string) => id !== ''))
   );
 
   const [homeMembershipRows, awayMembershipRows] = await Promise.all([
@@ -198,8 +200,8 @@ export async function calculateAndAwardXPAchievements(userId: string, leagueId?:
   const matchIds = Array.from(
     new Set([
       ...matchIdsFromStats,
-      ...(homeMembershipRows as any[]).map((r: any) => String(r.matchId || '')),
-      ...(awayMembershipRows as any[]).map((r: any) => String(r.matchId || '')),
+      ...(homeMembershipRows as any[]).map((r: any) => String(r.matchId || '').trim().toLowerCase()),
+      ...(awayMembershipRows as any[]).map((r: any) => String(r.matchId || '').trim().toLowerCase()),
     ].filter((id: string) => id !== ''))
   );
 
@@ -223,7 +225,7 @@ export async function calculateAndAwardXPAchievements(userId: string, leagueId?:
     return;
   }
 
-  const playedMatchWhere: any = { id: { [Op.in]: matchIds as any }, status: { [Op.in]: ['RESULT_PUBLISHED', 'RESULT_UPLOADED'] } };
+  const playedMatchWhere: any = { id: { [Op.in]: matchIds as any }, status: { [Op.in]: COMPLETED_MATCH_STATUSES } };
   if (leagueId) playedMatchWhere.leagueId = leagueId;
 
   const playedMatches = await Match.findAll({
@@ -255,19 +257,19 @@ export async function calculateAndAwardXPAchievements(userId: string, leagueId?:
       user.achievements = nextAchievementIds;
       await user.save();
     }
-    console.log(`User ${userId} has no RESULT_PUBLISHED matches for this scope. XP achievements cleared.`);
+    console.log(`User ${userId} has no matches for this scope. XP achievements cleared.`);
     return;
   }
 
   const leagueIds = Array.from(
-    new Set(playedMatches.map((m: any) => String(m.leagueId || '')).filter((id: string) => id !== ''))
+    new Set(playedMatches.map((m: any) => String(m.leagueId || '').trim().toLowerCase()).filter((id: string) => id !== ''))
   );
-  const playedMatchIds = playedMatches.map((m: any) => String(m.id)).filter((id: string) => id !== '');
+  const playedMatchIds = playedMatches.map((m: any) => String(m.id || '').trim().toLowerCase()).filter((id: string) => id !== '');
 
   const [leagueTotalRows, homeTeamRows, awayTeamRows, voteRows, statsRows] = await Promise.all([
     leagueIds.length > 0
       ? Match.findAll({
-          where: { leagueId: { [Op.in]: leagueIds as any }, status: { [Op.in]: ['RESULT_PUBLISHED', 'RESULT_UPLOADED'] } },
+          where: { leagueId: { [Op.in]: leagueIds as any }, status: { [Op.in]: COMPLETED_MATCH_STATUSES } },
           attributes: ['leagueId', [sequelize.fn('COUNT', sequelize.col('id')), 'totalMatches']],
           group: ['leagueId'],
           raw: true,
@@ -305,7 +307,7 @@ export async function calculateAndAwardXPAchievements(userId: string, leagueId?:
 
   const totalMatchesByLeague: Record<string, number> = {};
   for (const row of leagueTotalRows as any[]) {
-    const key = String(row.leagueId || '').trim();
+    const key = String(row.leagueId || '').trim().toLowerCase();
     if (!key) continue;
     totalMatchesByLeague[key] = Number(row.totalMatches || 0);
   }
@@ -315,22 +317,22 @@ export async function calculateAndAwardXPAchievements(userId: string, leagueId?:
   const votesByMatch = new Map<string, Array<{ votedForId: string; category?: string }>>();
 
   for (const row of homeTeamRows as any[]) {
-    const matchId = String(row.matchId || '').trim();
-    const playerId = String(row.userId || '').trim();
+    const matchId = String(row.matchId || '').trim().toLowerCase();
+    const playerId = String(row.userId || '').trim().toLowerCase();
     if (!matchId || !playerId) continue;
     if (!homeUsersByMatch.has(matchId)) homeUsersByMatch.set(matchId, new Set<string>());
     homeUsersByMatch.get(matchId)!.add(playerId);
   }
   for (const row of awayTeamRows as any[]) {
-    const matchId = String(row.matchId || '').trim();
-    const playerId = String(row.userId || '').trim();
+    const matchId = String(row.matchId || '').trim().toLowerCase();
+    const playerId = String(row.userId || '').trim().toLowerCase();
     if (!matchId || !playerId) continue;
     if (!awayUsersByMatch.has(matchId)) awayUsersByMatch.set(matchId, new Set<string>());
     awayUsersByMatch.get(matchId)!.add(playerId);
   }
   for (const row of voteRows as any[]) {
-    const matchId = String(row.matchId || '').trim();
-    const votedForId = String(row.votedForId || '').trim();
+    const matchId = String(row.matchId || '').trim().toLowerCase();
+    const votedForId = String(row.votedForId || '').trim().toLowerCase();
     const category = String(row.category || '').trim();
     if (!matchId || !votedForId) continue;
     if (!votesByMatch.has(matchId)) votesByMatch.set(matchId, []);
@@ -339,7 +341,9 @@ export async function calculateAndAwardXPAchievements(userId: string, leagueId?:
 
   const statsByMatch = new Map<string, { goals: number; assists: number }>();
   for (const row of statsRows as any[]) {
-    statsByMatch.set(String(row.match_id), {
+    const key = String(row.match_id ?? row.matchId ?? '').trim().toLowerCase();
+    if (!key) continue;
+    statsByMatch.set(key, {
       goals: Number(row.goals || 0),
       assists: Number(row.assists || 0),
     });
