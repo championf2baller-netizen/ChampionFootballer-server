@@ -226,7 +226,6 @@ export async function calculateAndAwardXPAchievements(userId: string, leagueId?:
   }
 
   const playedMatchWhere: any = { id: { [Op.in]: matchIds as any }, status: { [Op.in]: COMPLETED_MATCH_STATUSES } };
-  if (leagueId) playedMatchWhere.leagueId = leagueId;
 
   const playedMatches = await Match.findAll({
     where: playedMatchWhere,
@@ -719,6 +718,12 @@ export async function awardXPForMatch(matchId: string) {
       }
     }
 
+    // Calculate and award achievements & sync badges for player
+    try {
+      await calculateAndAwardXPAchievements(player.id, match.leagueId);
+    } catch (achErr) {
+      console.error(`   ❌ Failed to sync achievements for user ${player.id}:`, achErr);
+    }
   }
 
   console.log(`✅ Completed XP awards for match ${matchId}`);
@@ -818,7 +823,12 @@ export async function awardXPForPlayer(userId: string, matchId: string, statReco
       console.log(`   Total XP: ${oldXP} → ${user.xp}`);
     }
   }
-
+  // Automatically trigger achievement calculation & badge sync
+  try {
+    await calculateAndAwardXPAchievements(userId, match.leagueId);
+  } catch (achErr) {
+    console.error(`⚠️ Achievement sync error for user ${userId}:`, achErr);
+  }
 
   return xp;
 }

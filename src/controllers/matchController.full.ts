@@ -9,6 +9,7 @@ import { invalidateCache as invalidateMemoryCache } from '../middleware/memoryCa
 import { sendCaptainConfirmations, notifyCaptainConfirmed, notifyCaptainRevision } from '../modules/notifications';
 import Season from '../models/Season';
 import { checkAndCompleteLeagueAfterMatch, isLeagueLocked, invalidateLeagueCompletionCache } from '../utils/leagueCompletion';
+import { calculateAndAwardXPAchievements } from '../utils/xpAchievementsEngine';
 
 const { Match, Vote, User, MatchStatistics, League, MatchGuest, MatchAvailability } = models;
 
@@ -923,6 +924,16 @@ export async function recalculateMatchXPForCurrentState(matchId: string, ensureU
     }
 
     await tx.commit();
+
+    // Automatically sync achievements & award badges for all participants
+    for (const row of statsRows) {
+      const uid = String(row.user_id);
+      try {
+        await calculateAndAwardXPAchievements(uid, match.leagueId);
+      } catch (achErr) {
+        console.error(`Failed to sync achievements for user ${uid} after match XP recalculation:`, achErr);
+      }
+    }
 
     // Invalidate caches for all participants so updated XP shows immediately
     for (const row of statsRows) {
