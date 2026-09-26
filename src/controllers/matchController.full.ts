@@ -341,6 +341,91 @@ const calculateMatchupPrediction = async (
   };
 };
 
+export const validateScoreVsPlayerStats = async (
+  matchId: string,
+  newHomeGoals?: number | null,
+  newAwayGoals?: number | null
+): Promise<string | null> => {
+  const hasHomeUpdate = typeof newHomeGoals === 'number' && !Number.isNaN(newHomeGoals);
+  const hasAwayUpdate = typeof newAwayGoals === 'number' && !Number.isNaN(newAwayGoals);
+
+  if (!hasHomeUpdate && !hasAwayUpdate) return null;
+
+  const match = await Match.findByPk(matchId, {
+    include: [
+      { model: User, as: 'homeTeamUsers', attributes: ['id'] },
+      { model: User, as: 'awayTeamUsers', attributes: ['id'] },
+      { model: MatchGuest, as: 'guestPlayers', attributes: ['id', 'team'] }
+    ]
+  });
+
+  if (!match) return null;
+
+  const stats = await MatchStatistics.findAll({
+    where: { match_id: matchId }
+  });
+
+  if (!stats || stats.length === 0) return null;
+
+  const homeUserIds = new Set(((match as any).homeTeamUsers || []).map((u: any) => String(u.id)));
+  const awayUserIds = new Set(((match as any).awayTeamUsers || []).map((u: any) => String(u.id)));
+  const homeGuestIds = new Set(((match as any).guestPlayers || []).filter((g: any) => String(g.team).toLowerCase() === 'home').map((g: any) => String(g.id)));
+  const awayGuestIds = new Set(((match as any).guestPlayers || []).filter((g: any) => String(g.team).toLowerCase() === 'away').map((g: any) => String(g.id)));
+
+  let homePlayerGoalsSum = 0;
+  let homeMaxIndividualGoals = 0;
+
+  let awayPlayerGoalsSum = 0;
+  let awayMaxIndividualGoals = 0;
+
+  for (const s of stats) {
+    const uid = String(s.user_id || (s as any).userId || '').trim();
+    const g = Number(s.goals || 0);
+    if (g <= 0) continue;
+
+    const isHome = homeUserIds.has(uid) || homeGuestIds.has(uid);
+    const isAway = awayUserIds.has(uid) || awayGuestIds.has(uid);
+
+    if (isHome) {
+      homePlayerGoalsSum += g;
+      if (g > homeMaxIndividualGoals) homeMaxIndividualGoals = g;
+    } else if (isAway) {
+      awayPlayerGoalsSum += g;
+      if (g > awayMaxIndividualGoals) awayMaxIndividualGoals = g;
+    } else {
+      homePlayerGoalsSum += g;
+    }
+  }
+
+  // Check Home Goals validation
+  if (hasHomeUpdate && newHomeGoals! >= 0) {
+    if (newHomeGoals === 0 && homePlayerGoalsSum > 0) {
+      return `Home team players have recorded ${homePlayerGoalsSum} goal(s). Please remove or decrease player goals before setting team score to 0.`;
+    }
+    if (newHomeGoals! < homePlayerGoalsSum) {
+      return `Home team players have logged ${homePlayerGoalsSum} total goal(s), which exceeds team score (${newHomeGoals}). Please reduce player goals first.`;
+    }
+    if (newHomeGoals! < homeMaxIndividualGoals) {
+      return `A home team player has ${homeMaxIndividualGoals} individual goal(s), which exceeds team score (${newHomeGoals}). Please reduce player goals first.`;
+    }
+  }
+
+  // Check Away Goals validation
+  if (hasAwayUpdate && newAwayGoals! >= 0) {
+    if (newAwayGoals === 0 && awayPlayerGoalsSum > 0) {
+      return `Away team players have recorded ${awayPlayerGoalsSum} goal(s). Please remove or decrease player goals before setting team score to 0.`;
+    }
+    if (newAwayGoals! < awayPlayerGoalsSum) {
+      return `Away team players have logged ${awayPlayerGoalsSum} total goal(s), which exceeds team score (${newAwayGoals}). Please reduce player goals first.`;
+    }
+    if (newAwayGoals! < awayMaxIndividualGoals) {
+      return `An away team player has ${awayMaxIndividualGoals} individual goal(s), which exceeds team score (${newAwayGoals}). Please reduce player goals first.`;
+    }
+  }
+
+  return null;
+};
+
 const buildPredictionFromAverages = (
   homeAvg: number,
   awayAvg: number,
@@ -1172,6 +1257,13 @@ export const updateMatchGoals = async (ctx: Context) => {
     if (validationMessage) {
       ctx.status = 400;
       ctx.body = { success: false, message: validationMessage };
+      return;
+    }
+
+    const scoreStatsValidationMsg = await validateScoreVsPlayerStats(matchId, homeTeamGoals, awayTeamGoals);
+    if (scoreStatsValidationMsg) {
+      ctx.status = 400;
+      ctx.body = { success: false, message: scoreStatsValidationMsg };
       return;
     }
 
@@ -2504,6 +2596,13 @@ export const updateMatch = async (ctx: Context) => {
       if (validationMessage) {
         ctx.status = 400;
         ctx.body = { success: false, message: validationMessage };
+        return;
+      }
+
+      const scoreStatsValidationMsg = await validateScoreVsPlayerStats(id, homeTeamGoals, awayTeamGoals);
+      if (scoreStatsValidationMsg) {
+        ctx.status = 400;
+        ctx.body = { success: false, message: scoreStatsValidationMsg };
         return;
       }
     }
