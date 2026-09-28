@@ -1484,6 +1484,11 @@ export const getTrophyRoom = async (ctx: Context) => {
 // Get all matches for a specific league (without returning full league payload)
 export const getLeagueMatches = async (ctx: Context) => {
   const { id } = ctx.params;
+  if (!id || id === 'undefined' || id === 'null' || id === 'all') {
+    ctx.status = 400;
+    ctx.body = { success: false, message: 'Invalid league ID' };
+    return;
+  }
   const requestedSeasonId = typeof ctx.query?.seasonId === 'string' ? ctx.query.seasonId.trim() : '';
   const includeArchived = String(ctx.query?.includeArchived ?? '1') !== '0';
   const all = String(ctx.query?.all ?? '1') === '1';
@@ -1592,6 +1597,41 @@ export const getLeagueMatches = async (ctx: Context) => {
       order: [['date', 'ASC'], ['createdAt', 'ASC']]
     });
 
+    const matchIds = matches.map((m: any) => m.id);
+    const availabilityRecords = matchIds.length > 0
+      ? await MatchAvailability.findAll({
+        where: {
+          match_id: matchIds,
+          status: ['available', 'unavailable']
+        }
+      })
+      : [];
+
+    const respondedUserIds: string[] = Array.from(new Set<string>(availabilityRecords.map((a: any) => String(a.user_id))));
+    const availabilityUsersData = respondedUserIds.length > 0
+      ? await User.findAll({
+        where: { id: { [Op.in]: respondedUserIds } },
+        attributes: ['id', 'firstName', 'lastName', 'profilePicture', 'shirtNumber']
+      })
+      : [];
+
+    const userMap = new Map(availabilityUsersData.map((u: any) => [u.id, u.toJSON()]));
+
+    const matchAvailableMap: Record<string, any[]> = {};
+    const matchUnavailableMap: Record<string, any[]> = {};
+    availabilityRecords.forEach((a: any) => {
+      const userData = userMap.get(a.user_id);
+      if (userData) {
+        if (a.status === 'available') {
+          if (!matchAvailableMap[a.match_id]) matchAvailableMap[a.match_id] = [];
+          matchAvailableMap[a.match_id].push(userData);
+        } else if (a.status === 'unavailable') {
+          if (!matchUnavailableMap[a.match_id]) matchUnavailableMap[a.match_id] = [];
+          matchUnavailableMap[a.match_id].push(userData);
+        }
+      }
+    });
+
     const matchesBySeasonMap: Record<string, any[]> = {};
     matches.forEach((match: any) => {
       const seasonId = String(match.seasonId || 'no-season');
@@ -1606,11 +1646,21 @@ export const getLeagueMatches = async (ctx: Context) => {
 
     for (const sid of seasonIds) {
       if (sid === 'no-season') continue;
-      try {
-        allSeasonMatchesMap[sid] = await buildSeasonMatchNumberMap(id, sid);
-      } catch (e) {
-        console.warn('Failed to build allSeasonMatchesMap for season', sid, e);
-      }
+      const sorted = [...matchesBySeasonMap[sid]].sort((a: any, b: any) => {
+        const dateA = new Date(a.date || a.createdAt).getTime();
+        const dateB = new Date(b.date || b.createdAt).getTime();
+        return dateA - dateB;
+      });
+      const numberMap = new Map<string, number>();
+      let seq = 0;
+      sorted.forEach((m: any) => {
+        const isDeletedOrArchived = Boolean(m.deleted || m.archived);
+        if (!isDeletedOrArchived || isResultMatchRecord(m)) {
+          seq++;
+          numberMap.set(String(m.id), seq);
+        }
+      });
+      allSeasonMatchesMap[sid] = numberMap;
     }
 
     const matchesWithNumbers: any[] = [];
@@ -1637,8 +1687,13 @@ export const getLeagueMatches = async (ctx: Context) => {
 
           const assignedNumber = numberMap?.get(String(match.id)) || (index + 1);
 
+          const availableUsers = matchAvailableMap[String(match.id)] || matchJson.availableUsers || [];
+          const unavailableUsers = matchUnavailableMap[String(match.id)] || [];
+
           return {
             ...matchJson,
+            availableUsers,
+            unavailableUsers,
             seasonMatchNumber: assignedNumber,
             matchNumber: assignedNumber,
             manOfTheMatchVotes,
@@ -2554,11 +2609,21 @@ export const getLeagueById = async (ctx: Context) => {
 
     for (const sid of seasonIds) {
       if (sid === 'no-season') continue;
-      try {
-        allSeasonMatchesMap[sid] = await buildSeasonMatchNumberMap(id, sid);
-      } catch (e) {
-        console.warn('Failed to build allSeasonMatchesMap in getLeagueById for season', sid, e);
-      }
+      const sorted = [...matchesBySeasonMap[sid]].sort((a: any, b: any) => {
+        const dateA = new Date(a.date || a.createdAt).getTime();
+        const dateB = new Date(b.date || b.createdAt).getTime();
+        return dateA - dateB;
+      });
+      const numberMap = new Map<string, number>();
+      let seq = 0;
+      sorted.forEach((m: any) => {
+        const isDeletedOrArchived = Boolean(m.deleted || m.archived);
+        if (!isDeletedOrArchived || isResultMatchRecord(m)) {
+          seq++;
+          numberMap.set(String(m.id), seq);
+        }
+      });
+      allSeasonMatchesMap[sid] = numberMap;
     }
 
     const matchesWithNumbers: any[] = [];

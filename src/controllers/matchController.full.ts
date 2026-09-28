@@ -1210,7 +1210,34 @@ export const setMatchAvailability = async (ctx: Context) => {
       console.error('Failed to invalidate match cache after setting availability:', cacheErr);
     }
 
-    ctx.body = { success: true, message: 'Availability updated', available };
+    const updatedRecords = await MatchAvailability.findAll({
+      where: { match_id: matchId, status: ['available', 'unavailable'] }
+    });
+    const respondedUserIds = Array.from(new Set<string>(updatedRecords.map((a: any) => String(a.user_id))));
+    const availabilityUsersData = respondedUserIds.length > 0
+      ? await User.findAll({
+        where: { id: { [Op.in]: respondedUserIds } },
+        attributes: ['id', 'firstName', 'lastName', 'profilePicture', 'shirtNumber']
+      })
+      : [];
+    const userMap = new Map(availabilityUsersData.map((u: any) => [u.id, u.toJSON()]));
+    const availableUsers: any[] = [];
+    const unavailableUsers: any[] = [];
+    updatedRecords.forEach((a: any) => {
+      const uData = userMap.get(a.user_id);
+      if (uData) {
+        if (a.status === 'available') availableUsers.push(uData);
+        else if (a.status === 'unavailable') unavailableUsers.push(uData);
+      }
+    });
+
+    const updatedMatch = {
+      ...match.toJSON(),
+      availableUsers,
+      unavailableUsers
+    };
+
+    ctx.body = { success: true, message: 'Availability updated', available, match: updatedMatch };
   } catch (err) {
     console.error('Set availability error', err);
     ctx.status = 500;
