@@ -3140,25 +3140,49 @@ export const getPlayerQuickView = async (ctx: Context) => {
         ...matchWhere,
         deleted: false
       },
-      attributes: ['id'],
+      attributes: ['id', 'manOfTheMatchVotes'],
       include: [
         {
           model: Vote,
           as: 'votes',
-          attributes: ['votedForId']
+          where: {
+            category: { [Op.or]: ['motm', null] }
+          },
+          required: false,
+          attributes: ['votedForId', 'category']
         }
       ]
     });
 
     let motmCount = 0;
     for (const match of matches) {
-      const votes = (match as any).votes || [];
-      if (votes.length === 0) continue;
-
+      const matchRecord = match as any;
+      const votes = matchRecord.votes || [];
       const voteCounts: Record<string, number> = {};
-      for (const vote of votes) {
-        const vId = String(vote.votedForId);
-        voteCounts[vId] = (voteCounts[vId] || 0) + 1;
+
+      if (Array.isArray(votes) && votes.length > 0) {
+        for (const vote of votes) {
+          const vId = String(vote.votedForId);
+          if (vId) voteCounts[vId] = (voteCounts[vId] || 0) + 1;
+        }
+      } else if (matchRecord.manOfTheMatchVotes && typeof matchRecord.manOfTheMatchVotes === 'object') {
+        const rawVotes = matchRecord.manOfTheMatchVotes;
+        const entries = Object.entries(rawVotes);
+        if (entries.length > 0) {
+          const valuesAreCounts = entries.every(([, val]) => typeof val === 'number');
+          if (valuesAreCounts) {
+            entries.forEach(([pId, count]) => {
+              const vId = String(pId);
+              const cnt = Number(count) || 0;
+              if (vId && cnt > 0) voteCounts[vId] = (voteCounts[vId] || 0) + cnt;
+            });
+          } else {
+            entries.forEach(([, votedForId]) => {
+              const vId = String(votedForId);
+              if (vId) voteCounts[vId] = (voteCounts[vId] || 0) + 1;
+            });
+          }
+        }
       }
 
       let maxVotes = 0;
@@ -3168,12 +3192,12 @@ export const getPlayerQuickView = async (ctx: Context) => {
           maxVotes = count;
           winners.clear();
           winners.add(vId);
-        } else if (count === maxVotes) {
+        } else if (count === maxVotes && maxVotes > 0) {
           winners.add(vId);
         }
       }
 
-      if (winners.has(String(playerId))) {
+      if (maxVotes > 0 && winners.has(String(playerId))) {
         motmCount++;
       }
     }
