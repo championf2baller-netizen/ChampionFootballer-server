@@ -519,7 +519,7 @@ const deriveLeagueLifecycle = (
   computedLocked?: boolean,
   hasMatches: boolean = true
 ) => {
-  const manualCompleted = !archived && active === false && hasMatches;
+  const manualCompleted = !archived && active === false;
   const isCompleted = Boolean(computedCompleted) || manualCompleted;
   const isLocked = Boolean(computedLocked) || manualCompleted;
   const status: 'active' | 'inactive' | 'completed' = archived
