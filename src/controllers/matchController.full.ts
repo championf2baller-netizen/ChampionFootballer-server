@@ -1703,8 +1703,45 @@ export const submitMatchStats = async (ctx: Context) => {
       let safeGoals = Math.max(0, Number(stat.goals) || 0);
       let safeAssists = Math.max(0, Number(stat.assists) || 0);
 
+      const MAX_GOALS_EXCEEDED_MESSAGE = `The maximum number of goals has already been recorded by the players. You cannot add more goals than the total match goals.
+If you believe the score is incorrect, please contact the League Admin.`;
+
       if (teamGoalsCap !== null) {
-        safeGoals = Math.min(safeGoals, teamGoalsCap);
+        if (safeGoals > teamGoalsCap) {
+          ctx.status = 400;
+          ctx.body = {
+            success: false,
+            message: MAX_GOALS_EXCEEDED_MESSAGE
+          };
+          return;
+        }
+
+        const teamUsers = isHomeUser ? homeTeamUsers : await (match as any).getAwayTeamUsers();
+        const teamUserIds = teamUsers.map((u: any) => String(u.id));
+
+        const existingTeamStats = await MatchStatistics.findAll({
+          where: {
+            match_id: matchId,
+            user_id: teamUserIds
+          }
+        });
+
+        const existingOtherGoalsSum = existingTeamStats.reduce((sum, item: any) => {
+          if (String(item.user_id) !== String(userId)) {
+            return sum + Math.max(0, Number(item.goals) || 0);
+          }
+          return sum;
+        }, 0);
+
+        if (existingOtherGoalsSum + safeGoals > teamGoalsCap) {
+          ctx.status = 400;
+          ctx.body = {
+            success: false,
+            message: MAX_GOALS_EXCEEDED_MESSAGE
+          };
+          return;
+        }
+
         safeAssists = Math.min(safeAssists, teamGoalsCap);
       }
 
