@@ -3321,8 +3321,23 @@ export const createLeague = async (ctx: Context) => {
   const userId = ctx.state.user.userId;
   const { name, maxGames } = ctx.request.body as any;
 
-  if (!name) {
-    ctx.throw(400, 'League name is required');
+  if (!name || !String(name).trim()) {
+    ctx.status = 400;
+    ctx.body = { success: false, message: 'League name is required' };
+    return;
+  }
+
+  const trimmedName = String(name).trim();
+
+  // Case-insensitive check for duplicate league name
+  const existingLeagueCheck = await (League as any).sequelize.query(
+    `SELECT id FROM "Leagues" WHERE LOWER(TRIM("name")) = LOWER(TRIM(:name)) LIMIT 1`,
+    { replacements: { name: trimmedName }, type: QueryTypes.SELECT }
+  );
+
+  if (Array.isArray(existingLeagueCheck) && existingLeagueCheck.length > 0) {
+    ctx.status = 400;
+    ctx.body = { success: false, message: 'A league with this name already exists. Please choose a different name.' };
     return;
   }
 
@@ -3341,7 +3356,7 @@ export const createLeague = async (ctx: Context) => {
     const seasonInviteCode = await generateUniqueSeasonInviteCode();
 
     const league = await League.create({
-      name,
+      name: trimmedName,
       maxGames: leagueMaxGames,
       active: true,
       image: imageUrl,
@@ -3676,7 +3691,21 @@ export const updateLeague = async (ctx: Context) => {
     const requestedArchived = normalizeBoolean(archived);
 
     const updateData: any = {};
-    if (name) updateData.name = name;
+    if (name && String(name).trim()) {
+      const trimmedName = String(name).trim();
+      const duplicateLeague = await (League as any).sequelize.query(
+        `SELECT id FROM "Leagues" WHERE LOWER(TRIM("name")) = LOWER(TRIM(:name)) AND id != :id LIMIT 1`,
+        { replacements: { name: trimmedName, id: String(id) }, type: QueryTypes.SELECT }
+      );
+
+      if (Array.isArray(duplicateLeague) && duplicateLeague.length > 0) {
+        ctx.status = 400;
+        ctx.body = { success: false, message: 'A league with this name already exists. Please choose a different name.' };
+        return;
+      }
+
+      updateData.name = trimmedName;
+    }
     if (maxGames !== undefined) updateData.maxGames = Number(maxGames);
     if (completedStatusTokens.has(normalizedStatus)) {
       updateData.active = false;
