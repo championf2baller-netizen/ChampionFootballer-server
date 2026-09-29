@@ -1,4 +1,5 @@
 import { Context } from 'koa';
+import { QueryTypes } from 'sequelize';
 import Notification from '../models/Notification';
 import User from '../models/User';
 
@@ -231,7 +232,13 @@ export const handleSeasonAction = async (ctx: Context) => {
       };
     } else if (action === 'decline') {
       try {
+        await (Season as any).sequelize.query(
+          `DELETE FROM "SeasonPlayers" WHERE "seasonId" = :seasonId AND "userId" = :userId`,
+          { replacements: { seasonId: String(targetSeason.id), userId: String(userId) }, type: QueryTypes.DELETE }
+        );
         await (targetSeason as any).removePlayer(userId);
+        const { cleanupLeagueMembershipIfNoSeasonsLeft } = await import('./seasonController.js');
+        await cleanupLeagueMembershipIfNoSeasonsLeft(String(targetSeason.leagueId), String(userId));
         console.log(`Removed user ${userId} from season ${targetSeason.id} after decline`);
       } catch (removeError) {
         console.error(`Error removing user ${userId} from season ${targetSeason.id}:`, removeError);

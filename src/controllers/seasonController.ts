@@ -887,6 +887,12 @@ export const addPlayerToSeason = async (ctx: Context) => {
   }
 
   // Add player to season
+  try {
+    await (Season as any).sequelize.query(
+      `INSERT INTO "SeasonPlayers" ("seasonId", "userId", "createdAt", "updatedAt") VALUES (:seasonId, :userId, NOW(), NOW()) ON CONFLICT DO NOTHING`,
+      { replacements: { seasonId: String(activeSeason.id), userId: String(userId) }, type: QueryTypes.INSERT }
+    );
+  } catch {}
   await (activeSeason as any).addPlayer(userId);
   await invalidateLeagueMutationCaches(String(leagueId), [userId, ctx.state.user?.userId]);
 
@@ -894,6 +900,38 @@ export const addPlayerToSeason = async (ctx: Context) => {
     success: true,
     message: `Player added to ${activeSeason.name}`
   };
+};
+
+export const cleanupLeagueMembershipIfNoSeasonsLeft = async (leagueId: string, userId: string) => {
+  try {
+    const remainingSeasons = await (Season as any).sequelize.query(
+      `SELECT sp."seasonId" FROM "SeasonPlayers" sp
+       JOIN "Seasons" s ON sp."seasonId" = s.id
+       WHERE s."leagueId" = :leagueId AND sp."userId" = :userId AND COALESCE(s.deleted, false) = false
+       LIMIT 1`,
+      { replacements: { leagueId: String(leagueId), userId: String(userId) }, type: QueryTypes.SELECT }
+    );
+
+    const isEnrolledInOtherSeasons = Array.isArray(remainingSeasons) && remainingSeasons.length > 0;
+    if (!isEnrolledInOtherSeasons) {
+      await (League as any).sequelize.query(
+        `DELETE FROM "LeagueMember" WHERE "leagueId" = :leagueId AND "userId" = :userId`,
+        { replacements: { leagueId: String(leagueId), userId: String(userId) }, type: QueryTypes.DELETE }
+      );
+      const userObj = await User.findByPk(userId);
+      const leagueObj = await League.findByPk(leagueId);
+      if (userObj && leagueObj) {
+        try {
+          await (leagueObj as any).removeMember(userObj);
+        } catch {}
+      }
+      console.log(`[cleanupLeagueMembership] Removed user ${userId} from LeagueMember for league ${leagueId} (0 seasons remaining)`);
+    } else {
+      console.log(`[cleanupLeagueMembership] User ${userId} remains in LeagueMember for league ${leagueId} (has other active seasons)`);
+    }
+  } catch (err) {
+    console.error('[cleanupLeagueMembershipIfNoSeasonsLeft] Error:', err);
+  }
 };
 
 export const removePlayerFromSeason = async (ctx: Context) => {
@@ -931,7 +969,16 @@ export const removePlayerFromSeason = async (ctx: Context) => {
   }
 
   // Remove player from season
+  try {
+    await (Season as any).sequelize.query(
+      `DELETE FROM "SeasonPlayers" WHERE "seasonId" = :seasonId AND "userId" = :userId`,
+      { replacements: { seasonId: String(activeSeason.id), userId: String(userId) }, type: QueryTypes.DELETE }
+    );
+  } catch (sqlErr) {
+    console.error('[removePlayerFromSeason] SQL delete error:', sqlErr);
+  }
   await (activeSeason as any).removePlayer(userId);
+  await cleanupLeagueMembershipIfNoSeasonsLeft(String(leagueId), String(userId));
   await invalidateLeagueMutationCaches(String(leagueId), [userId, ctx.state.user?.userId]);
 
   ctx.body = {
@@ -1018,13 +1065,27 @@ export const leaveSeason = async (ctx: Context) => {
     return;
   }
 
+  const dbSeasonPlayerCheck = await (Season as any).sequelize.query(
+    `SELECT "userId" FROM "SeasonPlayers" WHERE "seasonId" = :seasonId AND "userId" = :userId LIMIT 1`,
+    { replacements: { seasonId: String(seasonId), userId: String(userId) }, type: QueryTypes.SELECT }
+  );
+  const isDirectSeasonPlayer = Array.isArray(dbSeasonPlayerCheck) && dbSeasonPlayerCheck.length > 0;
+
   const seasonPlayerIds = new Set(
     seasonPlayers
       .map((player) => String(player.id || '').trim())
       .filter((id) => id.length > 0)
   );
 
-  if (!seasonPlayerIds.has(userId)) {
+  const isIncludedSeasonPlayer = seasonPlayerIds.has(userId);
+
+  if (!isDirectSeasonPlayer && !isIncludedSeasonPlayer) {
+    try {
+      await (Season as any).sequelize.query(
+        `DELETE FROM "SeasonPlayers" WHERE "seasonId" = :seasonId AND "userId" = :userId`,
+        { replacements: { seasonId: String(seasonId), userId: String(userId) }, type: QueryTypes.DELETE }
+      );
+    } catch {}
     ctx.status = 400;
     ctx.body = {
       success: false,
@@ -1036,8 +1097,8 @@ export const leaveSeason = async (ctx: Context) => {
   if (isLeagueAdmin) {
     const otherAdminsInSeason = leagueAdmins
       .map((admin) => String(admin.id || '').trim())
-      .filter((adminId) => adminId.length > 0 && adminId !== userId && seasonPlayerIds.has(adminId));
-    const remainingSeasonPlayers = seasonPlayerIds.size - 1;
+      .filter((adminId) => adminId.length > 0 && adminId !== userId && (seasonPlayerIds.has(adminId) || isDirectSeasonPlayer));
+    const remainingSeasonPlayers = Math.max(0, seasonPlayerIds.size - 1);
 
     if (remainingSeasonPlayers > 0 && otherAdminsInSeason.length === 0) {
       ctx.status = 400;
@@ -1049,7 +1110,22 @@ export const leaveSeason = async (ctx: Context) => {
     }
   }
 
-  await (season as any).removePlayer(userId);
+  try {
+    await (Season as any).sequelize.query(
+      `DELETE FROM "SeasonPlayers" WHERE "seasonId" = :seasonId AND "userId" = :userId`,
+      { replacements: { seasonId: String(seasonId), userId: String(userId) }, type: QueryTypes.DELETE }
+    );
+  } catch (sqlErr) {
+    console.error('[leaveSeason] SQL delete error:', sqlErr);
+  }
+
+  try {
+    await (season as any).removePlayer(userId);
+  } catch (removeErr) {
+    console.warn('[leaveSeason] removePlayer error:', removeErr);
+  }
+
+  await cleanupLeagueMembershipIfNoSeasonsLeft(resolvedLeagueId, userId);
 
   try {
     const seasonNotifications = await Notification.findAll({
@@ -1087,6 +1163,13 @@ export const leaveSeason = async (ctx: Context) => {
   } catch (notificationUpdateError) {
     console.warn('[leaveSeason] failed to update NEW_SEASON notification state:', notificationUpdateError);
   }
+
+  cache.clearPattern(`user_leagues_${userId}`);
+  cache.clearPattern(`user_leagues_`);
+  cache.clearPattern(`auth_status_${userId}`);
+  cache.clearPattern(`auth_data_${userId}`);
+  cache.clearPattern(`league_${resolvedLeagueId}`);
+  cache.clearPattern(`matches_league_${resolvedLeagueId}`);
 
   await invalidateLeagueMutationCaches(resolvedLeagueId, [userId]);
 

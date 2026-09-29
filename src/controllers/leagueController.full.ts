@@ -4108,23 +4108,52 @@ export const joinLeague = async (ctx: Context) => {
       return;
     }
 
-    let seasonPlayers = ((targetSeason as any).players || []) as Array<{ id?: string | number }>;
-    if (seasonPlayers.length === 0) {
-      try {
-        seasonPlayers = await (targetSeason as any).getPlayers({
-          attributes: ['id'],
-          joinTableAttributes: [],
-        });
-      } catch {
-        seasonPlayers = [];
-      }
-    }
+    const dbSeasonPlayerCheck = await (Season as any).sequelize.query(
+      `SELECT "userId" FROM "SeasonPlayers" WHERE "seasonId" = :seasonId AND "userId" = :userId LIMIT 1`,
+      { replacements: { seasonId: String(targetSeason.id), userId: String(userId) }, type: QueryTypes.SELECT }
+    );
 
     const isMember = ((league as any).members || []).some((m: any) => String(m.id) === String(userId));
-    const isSeasonMember = seasonPlayers.some((p: any) => String(p.id) === String(userId));
+    const isSeasonMember = Array.isArray(dbSeasonPlayerCheck) && dbSeasonPlayerCheck.length > 0;
     if (isSeasonMember) {
-      ctx.status = 409;
-      ctx.body = { success: false, message: 'You are already joined to this season' };
+      if (!isMember) {
+        const userObj = await User.findByPk(userId);
+        if (userObj) {
+          try {
+            await (league as any).addMember(userObj);
+          } catch {}
+        }
+      }
+
+      cache.clearPattern(`user_leagues_${userId}`);
+      cache.clearPattern(`user_leagues_`);
+      cache.clearPattern(`auth_status_`);
+      cache.clearPattern(`league_${(league as any).id}`);
+      cache.clearPattern(`matches_league_${(league as any).id}`);
+      try {
+        invalidateServerCache('/leagues');
+        invalidateServerCache('/matches');
+      } catch { }
+
+      ctx.status = 200;
+      ctx.body = {
+        success: true,
+        alreadyJoined: true,
+        message: 'You are already joined to this season',
+        league: {
+          id: (league as any).id,
+          name: (league as any).name,
+          inviteCode: (league as any).inviteCode || '',
+          active: (league as any).active,
+          archived: Boolean((league as any).archived),
+        },
+        season: {
+          id: (targetSeason as any).id,
+          seasonNumber: (targetSeason as any).seasonNumber,
+          name: (targetSeason as any).name,
+          inviteCode: (targetSeason as any).inviteCode || '',
+        },
+      };
       return;
     }
 
@@ -4133,6 +4162,12 @@ export const joinLeague = async (ctx: Context) => {
       if (!isMember) {
         await (league as any).addMember(user);
       }
+      try {
+        await (Season as any).sequelize.query(
+          `INSERT INTO "SeasonPlayers" ("seasonId", "userId", "createdAt", "updatedAt") VALUES (:seasonId, :userId, NOW(), NOW()) ON CONFLICT DO NOTHING`,
+          { replacements: { seasonId: String(targetSeason.id), userId: String(userId) }, type: QueryTypes.INSERT }
+        );
+      } catch {}
       try {
         await (targetSeason as any).addPlayer(user);
       } catch (addError) {
@@ -4310,6 +4345,14 @@ export const leaveLeague = async (ctx: Context) => {
         await (league as any).removeAdministeredLeagues(user);
       }
     }
+    try {
+      await (League as any).sequelize.query(
+        `DELETE FROM "SeasonPlayers" WHERE "seasonId" IN (SELECT id FROM "Seasons" WHERE "leagueId" = :leagueId) AND "userId" = :userId`,
+        { replacements: { leagueId: String(id), userId: String(userId) }, type: QueryTypes.DELETE }
+      );
+    } catch (sqlErr) {
+      console.error('Failed to remove user from SeasonPlayers on leaveLeague:', sqlErr);
+    }
 
     // Ensure the leaving user is removed from all match/team assignments in this league
     try {
@@ -4377,6 +4420,14 @@ export const removeUserFromLeague = async (ctx: Context) => {
     const user = await User.findByPk(targetUserId);
     if (user) {
       await (league as any).removeMember(user);
+    }
+    try {
+      await (League as any).sequelize.query(
+        `DELETE FROM "SeasonPlayers" WHERE "seasonId" IN (SELECT id FROM "Seasons" WHERE "leagueId" = :leagueId) AND "userId" = :userId`,
+        { replacements: { leagueId: String(id), userId: String(targetUserId) }, type: QueryTypes.DELETE }
+      );
+    } catch (sqlErr) {
+      console.error('Failed to remove target user from SeasonPlayers on removeUserFromLeague:', sqlErr);
     }
 
     // Keep match/team selections in sync when admin removes a member
