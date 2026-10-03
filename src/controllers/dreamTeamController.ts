@@ -325,17 +325,19 @@ export const getDreamTeam = async (ctx: Context) => {
     let totalSelected = 0;
 
     // Pick top-ranked players in order (#1 first, #2 second, etc.) up to 5 total players.
-    // If a player's position category is already filled, skip them and pick the next player with an available position.
+    // Goalkeeper + Defenders combined is capped at max 2 players total so the 1 player with lower XP is not shown.
     for (const player of rankedPlayers) {
       if (totalSelected >= 5) break;
 
       const posType = getPositionType(player);
       if (!posType) continue;
 
-      if (posType === 'Goalkeeper' && selectedDreamTeam.goalkeeper.length < 1) {
+      const currentDefensiveCount = selectedDreamTeam.goalkeeper.length + selectedDreamTeam.defenders.length;
+
+      if (posType === 'Goalkeeper' && selectedDreamTeam.goalkeeper.length < 1 && currentDefensiveCount < 2) {
         selectedDreamTeam.goalkeeper.push(player);
         totalSelected++;
-      } else if (posType === 'Defender' && selectedDreamTeam.defenders.length < 2) {
+      } else if (posType === 'Defender' && selectedDreamTeam.defenders.length < 2 && currentDefensiveCount < 2) {
         selectedDreamTeam.defenders.push(player);
         totalSelected++;
       } else if (posType === 'Midfielder' && selectedDreamTeam.midfielders.length < 2) {
