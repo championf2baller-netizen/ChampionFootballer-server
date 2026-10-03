@@ -4939,9 +4939,23 @@ export const updateMatchInLeague = async (ctx: Context) => {
       }
     }
 
-    // Handle image uploads if present
-    let homeTeamImage: string | null = (match as any).homeTeamImage;
-    let awayTeamImage: string | null = (match as any).awayTeamImage;
+    // Handle image uploads or removal if present
+    const removeHomeTeamImage =
+      body.removeHomeTeamImage === true ||
+      body.removeHomeTeamImage === 'true' ||
+      body.homeTeamImage === '' ||
+      body.homeTeamImage === 'null' ||
+      body.clearHomeTeamImage === 'true';
+
+    const removeAwayTeamImage =
+      body.removeAwayTeamImage === true ||
+      body.removeAwayTeamImage === 'true' ||
+      body.awayTeamImage === '' ||
+      body.awayTeamImage === 'null' ||
+      body.clearAwayTeamImage === 'true';
+
+    let homeTeamImage: string | null = removeHomeTeamImage ? null : ((match as any).homeTeamImage || null);
+    let awayTeamImage: string | null = removeAwayTeamImage ? null : ((match as any).awayTeamImage || null);
 
     if (files) {
       if (files.homeTeamImage && files.homeTeamImage[0]) {
@@ -4968,8 +4982,8 @@ export const updateMatchInLeague = async (ctx: Context) => {
       ? normalizedNotificationMessage
       : (notes !== undefined ? normalizedNotes : undefined);
     if (effectiveNotes !== undefined) updateData.notes = effectiveNotes;
-    if (homeTeamImage) updateData.homeTeamImage = homeTeamImage;
-    if (awayTeamImage) updateData.awayTeamImage = awayTeamImage;
+    updateData.homeTeamImage = homeTeamImage;
+    updateData.awayTeamImage = awayTeamImage;
     if (homeCaptainId !== undefined) updateData.homeCaptainId = homeCaptainId || null;
     if (awayCaptainId !== undefined) updateData.awayCaptainId = awayCaptainId || null;
 
