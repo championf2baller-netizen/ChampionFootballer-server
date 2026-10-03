@@ -2415,8 +2415,9 @@ export const getLeagueById = async (ctx: Context) => {
   }
 
   const userId = ctx.state.user.userId;
+  const forceRefresh = ctx.query.refresh === '1' || ctx.query.nocache === '1' || typeof ctx.query._t !== 'undefined';
   const cacheKey = `league_${id}_${userId}_${requestedSeasonId || 'all'}_${includeMatches ? 'with_matches' : 'meta'}`;
-  const cached = cache.get(cacheKey);
+  const cached = forceRefresh ? undefined : cache.get(cacheKey);
   if (cached) {
     ctx.set('X-Cache', 'HIT');
     ctx.body = cached;
@@ -2915,8 +2916,9 @@ export const getLeagueXP = async (ctx: Context) => {
   }
 
   const userId = ctx.state.user.userId;
+  const forceRefresh = ctx.query.refresh === '1' || ctx.query.nocache === '1' || typeof ctx.query._t !== 'undefined';
   const cacheKey = `league_xp_${id}_${querySeasonId || 'all'}_${userId}`;
-  const cached = cache.get(cacheKey);
+  const cached = forceRefresh ? undefined : cache.get(cacheKey);
   if (cached) {
     ctx.set('X-Cache', 'HIT');
     ctx.body = cached;
