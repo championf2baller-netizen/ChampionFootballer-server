@@ -2283,6 +2283,31 @@ export const getMatchById = async (ctx: Context) => {
       }
     }
 
+    let availableUsers: any[] = [];
+    let unavailableUsers: any[] = [];
+    try {
+      const availRecords = await MatchAvailability.findAll({
+        where: { match_id: matchId, status: ['available', 'unavailable'] }
+      });
+      const respondedUserIds = Array.from(new Set<string>(availRecords.map((a: any) => String(a.user_id))));
+      if (respondedUserIds.length > 0) {
+        const usersData = await User.findAll({
+          where: { id: { [Op.in]: respondedUserIds } },
+          attributes: ['id', 'firstName', 'lastName', 'profilePicture', 'shirtNumber']
+        });
+        const userMap = new Map(usersData.map((u: any) => [u.id, u.toJSON()]));
+        availRecords.forEach((a: any) => {
+          const uData = userMap.get(a.user_id);
+          if (uData) {
+            if (a.status === 'available') availableUsers.push(uData);
+            else if (a.status === 'unavailable') unavailableUsers.push(uData);
+          }
+        });
+      }
+    } catch (availErr) {
+      console.warn('Could not fetch match availability in getMatchById:', availErr);
+    }
+
     const payload = {
       success: true,
       match: {
@@ -2312,6 +2337,8 @@ export const getMatchById = async (ctx: Context) => {
         league: (match as any).league,
         homeTeamUsers: (match as any).homeTeamUsers,
         awayTeamUsers: (match as any).awayTeamUsers,
+        availableUsers,
+        unavailableUsers,
         guests: (match as any).guestPlayers || []
       }
     };
