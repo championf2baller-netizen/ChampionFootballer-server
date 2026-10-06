@@ -212,19 +212,45 @@ export const getDreamTeam = async (ctx: Context) => {
         return null;
       }
 
+      // Priority 1: Direct rawType matching
+      if (['goalkeeper', 'goalkeepers', 'gk'].includes(rawType)) return 'Goalkeeper';
+      if (['defender', 'defenders', 'df'].includes(rawType)) return 'Defender';
+      if (['midfielder', 'midfielders', 'mf', 'md'].includes(rawType)) return 'Midfielder';
+      if (['forward', 'forwards', 'fw', 'fwd', 'attacker', 'attackers'].includes(rawType)) return 'Forward';
+
+      // Priority 2: Keyword/Token inspection on combined position & type
       const combined = `${rawType} ${rawPos}`.trim();
       if (!combined) return null;
 
+      // Goalkeeper
       if (
         combined.includes('goalkeeper') ||
-        combined.includes('gk') ||
         combined.includes('keeper') ||
-        rawType === 'goalkeeper' ||
-        rawType === 'goalkeepers'
+        combined.includes('gk')
       ) {
         return 'Goalkeeper';
       }
 
+      // Midfielder BEFORE Defender (so 'defensive mid' / 'cdm' is matched as Midfielder, not Defender)
+      if (
+        combined.includes('midfield') ||
+        combined.includes('midfielder') ||
+        combined.includes('cdm') ||
+        combined.includes('cam') ||
+        combined.includes('cm') ||
+        combined.includes('lm') ||
+        combined.includes('rm') ||
+        combined.includes('defensive mid') ||
+        combined.includes('attacking mid') ||
+        combined.includes('central mid') ||
+        combined.includes('right mid') ||
+        combined.includes('left mid') ||
+        rawType.startsWith('mid')
+      ) {
+        return 'Midfielder';
+      }
+
+      // Defender
       if (
         combined.includes('defender') ||
         combined.includes('defence') ||
@@ -235,24 +261,15 @@ export const getDreamTeam = async (ctx: Context) => {
         combined.includes('rb') ||
         combined.includes('lwb') ||
         combined.includes('rwb') ||
+        combined.includes('center-back') ||
+        combined.includes('right-back') ||
+        combined.includes('left-back') ||
         rawType.startsWith('def')
       ) {
         return 'Defender';
       }
 
-      if (
-        combined.includes('midfield') ||
-        combined.includes('midfielder') ||
-        combined.includes('cdm') ||
-        combined.includes('cam') ||
-        combined.includes('cm') ||
-        combined.includes('lm') ||
-        combined.includes('rm') ||
-        rawType.startsWith('mid')
-      ) {
-        return 'Midfielder';
-      }
-
+      // Forward (ST, CF, RF, LF, RW, LW)
       if (
         combined.includes('forward') ||
         combined.includes('striker') ||
@@ -260,11 +277,21 @@ export const getDreamTeam = async (ctx: Context) => {
         combined.includes('attacker') ||
         combined.includes('st') ||
         combined.includes('cf') ||
-        combined.includes('lw') ||
+        combined.includes('rf') ||
+        combined.includes('lf') ||
         combined.includes('rw') ||
+        combined.includes('lw') ||
         combined.includes('fwd') ||
+        combined.includes('fw') ||
+        combined.includes('finisher') ||
+        combined.includes('poacher') ||
+        combined.includes('predator') ||
+        combined.includes('rocket') ||
+        combined.includes('ruthless') ||
+        combined.includes('sniper') ||
         rawType.startsWith('for') ||
-        rawType.startsWith('st')
+        rawType.startsWith('st') ||
+        rawType.startsWith('att')
       ) {
         return 'Forward';
       }
