@@ -1039,6 +1039,7 @@ export async function recalculateMatchXPForCurrentState(matchId: string, ensureU
     }
     cache.clearPattern('leaderboard_');
     cache.clearPattern('trophy_room_');
+    cache.clearPattern('achievements:');
   } catch (err) {
     await tx.rollback();
     throw err;
@@ -1342,6 +1343,7 @@ export const updateMatchGoals = async (ctx: Context) => {
       }
       cache.clearPattern('leaderboard_');
       cache.clearPattern('trophy_room_');
+      cache.clearPattern('achievements:');
       invalidateMemoryCache('/leaderboard');
       invalidateMemoryCache('/leagues');
       invalidateMemoryCache('/matches');
@@ -2107,6 +2109,7 @@ If you believe the score is incorrect, please contact the League Admin.`;
       }
       cache.clearPattern('leaderboard_');
       cache.clearPattern('trophy_room_');
+      cache.clearPattern('achievements:');
       invalidateMemoryCache('/leaderboard');
       invalidateMemoryCache('/users/me/achievements');
       invalidateMemoryCache('/users/me/global-stats');
