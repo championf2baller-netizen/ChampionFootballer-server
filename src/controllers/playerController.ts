@@ -834,7 +834,7 @@ export const getCareerDashboard = async (ctx: Context) => {
           topStrengths: { rows: [], note: '', narrative: null },
           focusSuggestion: 'Play a few more games to unlock a personalized focus area.',
           winLossBreakdown: [
-            { name: 'Win', value: 0, color: '#15b57a', fill: '#15b57a' },
+            { name: 'Won', value: 0, color: '#15b57a', fill: '#15b57a' },
             { name: 'Loss', value: 0, color: '#d22f2f', fill: '#d22f2f' },
             { name: 'Draw', value: 0, color: '#ff4bd2', fill: '#ff4bd2' }
           ],
@@ -1526,7 +1526,7 @@ export const getCareerDashboard = async (ctx: Context) => {
     // Win/Loss Breakdown (Largest-Remainder method)
     const totalWLMatches = wins + losses + draws;
     let winLossBreakdown = [
-      { name: 'Win', value: 0, color: '#15b57a', fill: '#15b57a' },
+      { name: 'Won', value: 0, color: '#15b57a', fill: '#15b57a' },
       { name: 'Loss', value: 0, color: '#d22f2f', fill: '#d22f2f' },
       { name: 'Draw', value: 0, color: '#ff4bd2', fill: '#ff4bd2' }
     ];
@@ -1555,7 +1555,7 @@ export const getCareerDashboard = async (ctx: Context) => {
       }
 
       winLossBreakdown = [
-        { name: 'Win', value: floorWin, color: '#15b57a', fill: '#15b57a' },
+        { name: 'Won', value: floorWin, color: '#15b57a', fill: '#15b57a' },
         { name: 'Loss', value: floorLoss, color: '#d22f2f', fill: '#d22f2f' },
         { name: 'Draw', value: floorDraw, color: '#ff4bd2', fill: '#ff4bd2' }
       ];
