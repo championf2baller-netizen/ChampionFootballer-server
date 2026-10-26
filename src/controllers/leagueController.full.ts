@@ -535,6 +535,32 @@ const deriveLeagueLifecycle = (
   };
 };
 
+export const isPlayerSubmittedStat = (stat: any): boolean => {
+  if (!stat) return false;
+  const goals = Number(stat.goals) || 0;
+  const assists = Number(stat.assists) || 0;
+  const cleanSheets = Number(stat.cleanSheets ?? stat.clean_sheets) || 0;
+  const defence = Number(stat.defence) || 0;
+  const penalties = Number(stat.penalties) || 0;
+  const freeKicks = Number(stat.freeKicks ?? stat.free_kicks) || 0;
+  const yellowCards = Number(stat.yellowCards ?? stat.yellow_cards) || 0;
+  const redCards = Number(stat.redCards ?? stat.red_cards) || 0;
+
+  if (goals > 0 || assists > 0 || cleanSheets > 0 || defence > 0 || penalties > 0 || freeKicks > 0 || yellowCards > 0 || redCards > 0) {
+    return true;
+  }
+
+  const impact = Number(stat.impact) || 0;
+  const minutes = Number(stat.minutesPlayed ?? stat.minutes_played) || 0;
+  const rating = Number(stat.rating) || 0;
+
+  if (impact > 0 && minutes === 0 && rating === 0) {
+    return true;
+  }
+
+  return false;
+};
+
 const fetchMatchesWithLightRelations = async (matchWhere: any): Promise<any[]> => {
   const matches = await Match.findAll({
     where: {
@@ -553,7 +579,7 @@ const fetchMatchesWithLightRelations = async (matchWhere: any): Promise<any[]> =
   if (!matchIds.length) return [];
 
   const sequelize = Match.sequelize!;
-  const [homeRows, awayRows, guestRows, voteRows] = await Promise.all([
+  const [homeRows, awayRows, guestRows, voteRows, statsRows] = await Promise.all([
     sequelize.query<{ matchId: string; userId: string }>(
       `SELECT "matchId", "userId" FROM "UserHomeMatches" WHERE "matchId" IN (:matchIds)`,
       { replacements: { matchIds }, type: QueryTypes.SELECT }
@@ -570,6 +596,11 @@ const fetchMatchesWithLightRelations = async (matchWhere: any): Promise<any[]> =
     Vote.findAll({
       where: { matchId: { [Op.in]: matchIds } },
       attributes: ['matchId', 'voterId', 'votedForId'],
+      raw: true,
+    }),
+    MatchStatistics.findAll({
+      where: { match_id: { [Op.in]: matchIds } },
+      attributes: ['id', 'match_id', 'user_id', 'goals', 'assists', 'cleanSheets', 'penalties', 'freeKicks', 'yellowCards', 'redCards', 'defence', 'impact', 'minutesPlayed', 'rating', 'xpAwarded'],
       raw: true,
     }),
   ]);
@@ -624,6 +655,14 @@ const fetchMatchesWithLightRelations = async (matchWhere: any): Promise<any[]> =
     });
   });
 
+  const statsByMatch: Record<string, any[]> = {};
+  (statsRows as any[] || []).forEach((stat: any) => {
+    if (!isPlayerSubmittedStat(stat)) return;
+    const matchId = String(stat.match_id);
+    if (!statsByMatch[matchId]) statsByMatch[matchId] = [];
+    statsByMatch[matchId].push(stat);
+  });
+
   return (matches as any[]).map((match: any) => {
     const matchId = String(match.id);
     return {
@@ -632,6 +671,7 @@ const fetchMatchesWithLightRelations = async (matchWhere: any): Promise<any[]> =
       awayTeamUsers: awayByMatch[matchId] || [],
       guestPlayers: guestsByMatch[matchId] || [],
       votes: votesByMatch[matchId] || [],
+      playerStats: statsByMatch[matchId] || [],
     };
   });
 };
@@ -1598,14 +1638,33 @@ export const getLeagueMatches = async (ctx: Context) => {
     });
 
     const matchIds = matches.map((m: any) => m.id);
-    const availabilityRecords = matchIds.length > 0
-      ? await MatchAvailability.findAll({
-        where: {
-          match_id: matchIds,
-          status: ['available', 'unavailable']
-        }
-      })
-      : [];
+    const [availabilityRecords, matchStatsRecords] = await Promise.all([
+      matchIds.length > 0
+        ? MatchAvailability.findAll({
+          where: {
+            match_id: matchIds,
+            status: ['available', 'unavailable']
+          }
+        })
+        : [],
+      matchIds.length > 0
+        ? MatchStatistics.findAll({
+          where: {
+            match_id: matchIds
+          },
+          attributes: ['id', 'match_id', 'user_id', 'goals', 'assists', 'cleanSheets', 'penalties', 'freeKicks', 'yellowCards', 'redCards', 'defence', 'impact', 'minutesPlayed', 'rating', 'xpAwarded'],
+          raw: true
+        })
+        : []
+    ]);
+
+    const matchStatsMap: Record<string, any[]> = {};
+    (matchStatsRecords as any[] || []).forEach((stat: any) => {
+      if (!isPlayerSubmittedStat(stat)) return;
+      const mid = String(stat.match_id);
+      if (!matchStatsMap[mid]) matchStatsMap[mid] = [];
+      matchStatsMap[mid].push(stat);
+    });
 
     const respondedUserIds: string[] = Array.from(new Set<string>(availabilityRecords.map((a: any) => String(a.user_id))));
     const availabilityUsersData = respondedUserIds.length > 0
@@ -1698,6 +1757,7 @@ export const getLeagueMatches = async (ctx: Context) => {
             matchNumber: assignedNumber,
             manOfTheMatchVotes,
             guests,
+            playerStats: matchStatsMap[String(match.id)] || [],
           };
         });
 
@@ -1816,7 +1876,12 @@ export const getLeagueMatch = async (ctx: Context) => {
         league: (match as any).league,
         homeTeamUsers: (match as any).homeTeamUsers || [],
         awayTeamUsers: (match as any).awayTeamUsers || [],
-        guests: (match as any).guestPlayers || []
+        guests: (match as any).guestPlayers || [],
+        playerStats: ((await MatchStatistics.findAll({
+          where: { match_id: matchId },
+          attributes: ['id', 'match_id', 'user_id', 'goals', 'assists', 'cleanSheets', 'penalties', 'freeKicks', 'yellowCards', 'redCards', 'defence', 'impact', 'minutesPlayed', 'rating', 'xpAwarded'],
+          raw: true,
+        })) || []).filter(isPlayerSubmittedStat)
       }
     };
   } catch (err) {
@@ -2562,14 +2627,33 @@ export const getLeagueById = async (ctx: Context) => {
     console.log(`📊 [getLeagueById] Fetching matches for league ${id} (user: ${userId}, isAdmin: ${isAdmin}): ${matches.length} matches`);
 
     const matchIds = matches.map((m: any) => m.id);
-    const availabilityRecords = matchIds.length > 0
-      ? await MatchAvailability.findAll({
-        where: {
-          match_id: matchIds,
-          status: ['available', 'unavailable']
-        }
-      })
-      : [];
+    const [availabilityRecords, matchStatsRecords] = await Promise.all([
+      matchIds.length > 0
+        ? MatchAvailability.findAll({
+          where: {
+            match_id: matchIds,
+            status: ['available', 'unavailable']
+          }
+        })
+        : [],
+      matchIds.length > 0
+        ? MatchStatistics.findAll({
+          where: {
+            match_id: matchIds
+          },
+          attributes: ['id', 'match_id', 'user_id', 'goals', 'assists', 'cleanSheets', 'penalties', 'freeKicks', 'yellowCards', 'redCards', 'defence', 'impact', 'minutesPlayed', 'rating', 'xpAwarded'],
+          raw: true
+        })
+        : []
+    ]);
+
+    const matchStatsMap: Record<string, any[]> = {};
+    (matchStatsRecords as any[] || []).forEach((stat: any) => {
+      if (!isPlayerSubmittedStat(stat)) return;
+      const mid = String(stat.match_id);
+      if (!matchStatsMap[mid]) matchStatsMap[mid] = [];
+      matchStatsMap[mid].push(stat);
+    });
 
     const respondedUserIds: string[] = Array.from(new Set<string>(availabilityRecords.map((a: any) => String(a.user_id))));
     const availabilityUsersData = respondedUserIds.length > 0
@@ -2657,6 +2741,7 @@ export const getLeagueById = async (ctx: Context) => {
             matchNumber: assignedNumber,
             manOfTheMatchVotes,
             guests,
+            playerStats: matchStatsMap[String(match.id)] || matchJson.playerStats || [],
             availableUsers: matchAvailableMap[match.id] || [],
             unavailableUsers: matchUnavailableMap[match.id] || []
           };

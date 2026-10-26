@@ -2559,6 +2559,18 @@ export const getMatchStats = async (ctx: Context) => {
           ? `guest-${String(statUser.providerId)}`
           : String(s.user_id);
 
+        const hasSubmitted = (
+          Number(s.goals || 0) > 0 ||
+          Number(s.assists || 0) > 0 ||
+          Number(s.cleanSheets || 0) > 0 ||
+          Number(s.defence || 0) > 0 ||
+          Number(s.penalties || 0) > 0 ||
+          Number(s.freeKicks || 0) > 0 ||
+          Number(s.yellowCards || 0) > 0 ||
+          Number(s.redCards || 0) > 0 ||
+          (Number(s.impact || 0) > 0 && Number(s.minutesPlayed || 0) === 0 && Number(s.rating || 0) === 0)
+        );
+
         return {
           userId: s.user_id,
           displayUserId,
@@ -2571,6 +2583,7 @@ export const getMatchStats = async (ctx: Context) => {
           impact: s.impact,
           impactPercent: `${Number(s.impact) || 0}%`,
           xpAwarded: (s as any).xpAwarded || 0,
+          hasSubmittedStats: hasSubmitted,
           user: statUser
             ? {
               id: statUser.id,
