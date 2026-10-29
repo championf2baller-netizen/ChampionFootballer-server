@@ -26,7 +26,7 @@ router.post("/contact", none, async (ctx) => {
   }
 
   await transporter.sendMail({
-    to: ["huzaifahj29@gmail.com", "championfootballer@outlook.com"],
+    to: ["huzaifahj29@gmail.com", "info@championfootballer.co.uk"],
     subject: "New message from Champion Footballer contact form",
     html: `<p>From: ${name}</p>
     <p>Email address: ${email}</p>

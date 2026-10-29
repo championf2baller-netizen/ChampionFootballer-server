@@ -216,8 +216,11 @@ router.post("/auth/register", none, async (ctx: Context) => {
     }
 
     // Validate age
-    if (!Number.isInteger(age) || age < 18 || age > 65) {
-      ctx.throw(400, "Age must be between 18 and 65");
+    if (!Number.isInteger(age) || age < 13 || age > 65) {
+      if (Number.isInteger(age) && age < 13) {
+        ctx.throw(400, "You must be 13 years or older to use Champion Footballer.");
+      }
+      ctx.throw(400, "Age must be between 13 and 65");
     }
 
     // Validate gender

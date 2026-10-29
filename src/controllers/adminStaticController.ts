@@ -1587,7 +1587,7 @@ If any complaint with us is not satisfactorily resolved, you can contact the Com
 These Terms of Use and any policies posted by us on the Site constitute the entire agreement and understanding between you and us.
 
 25. CONTACT US
-In order to resolve a complaint regarding the Site or to receive further information regarding use of the Site, please contact us at support@championfootballer.co.uk or championfootballer@outlook.com`,
+In order to resolve a complaint regarding the Site or to receive further information regarding use of the Site, please contact us at info@championfootballer.co.uk`,
     metadata: {}
   },
   {
@@ -1596,7 +1596,7 @@ In order to resolve a complaint regarding the Site or to receive further informa
     title: 'Privacy Policy',
     content: `1. Purpose of this Privacy Policy
 This privacy notice for Champion Footballer describes how and why we might collect, store, use, and/or share ("process") your information when you use our services ("Services") through your use of this website and any mobile application ("Platform").
-Questions or concerns? Reading this privacy notice will help you understand your privacy rights and choices. If you do not agree with our policies and practices, please do not use our Services. If you still have any questions or concerns, please contact us at championfootballer@outlook.com.
+Questions or concerns? Reading this privacy notice will help you understand your privacy rights and choices. If you do not agree with our policies and practices, please do not use our Services. If you still have any questions or concerns, please contact us at info@championfootballer.co.uk.
 Champion Footballer respects your privacy and is dedicated to protecting your personal data. This privacy notice will inform you as to how we look after your personal data when you visit our Platform and tell you about your privacy rights and how the law protects you.
 We collect, use and are responsible for certain personal information about you under relevant data protection laws (including GDPR).
 
@@ -1650,7 +1650,7 @@ Our servers are located securely. If you access our Services from outside, your 
 We will only keep your personal information for as long as necessary for the purposes set out in this privacy notice, unless a longer retention period is required by law.
 
 11. Do We Collect Information From Minors?
-We do not knowingly solicit data from or market to children under 18 years of age. Users under 18 must have parental/guardian consent.
+We do not knowingly solicit data from or market to children under 13 years of age. Users must be at least 13 years old to use Champion Footballer. Users under 18 must have parental/guardian consent.
 
 12. What Are Your Privacy Rights?
 In Short: You may review, change, or terminate your account at any time. Depending on your location (EEA/UK), you have specific rights to request access, correction, or deletion of your personal data.
@@ -1665,7 +1665,7 @@ California Civil Code Section 1798.83 permits California residents to request de
 We may update this privacy notice from time to time to stay compliant with relevant laws. Updated versions will be indicated by a revised date.
 
 16. How Can You Contact Us About This Notice?
-If you have questions or comments about this notice, you may email us at championfootballer@outlook.com or support@championfootballer.co.uk or by post to:
+If you have questions or comments about this notice, you may email us at info@championfootballer.co.uk or by post to:
 Suite RA01, 195-197 Wood Street, London, E17 3NU
 
 17. How Can You Review, Update, or Delete The Data We Collect From You?
@@ -1679,8 +1679,8 @@ This Cookie Policy explains how Champion Footballer uses cookies and similar tec
     key: 'contact_details',
     category: 'general',
     title: 'Contact Us',
-    content: 'Have a question or feedback? Contact our support team at support@championfootballer.co.uk or via WhatsApp +44 7000 000000.',
-    metadata: { email: 'support@championfootballer.co.uk', phone: '+44 7000 000000' }
+    content: 'Have a question or feedback? Contact our support team at info@championfootballer.co.uk or via WhatsApp +44 7000 000000.',
+    metadata: { email: 'info@championfootballer.co.uk', phone: '+44 7000 000000' }
   }
 ];
 
@@ -1787,6 +1787,25 @@ export const ensureDefaultsExist = async () => {
         { category: 'career' },
         { where: { key: ['player_career_heading'] } }
       );
+
+      // Update legacy email addresses and minor age in existing static_contents
+      try {
+        await sequelize.query(`
+          UPDATE "static_contents"
+          SET "content" = REPLACE(
+            REPLACE(
+              REPLACE("content", 'championfootballer@outlook.com', 'info@championfootballer.co.uk'),
+              'support@championfootballer.co.uk', 'info@championfootballer.co.uk'
+            ),
+            'under 18 years of age', 'under 13 years of age'
+          )
+          WHERE "content" LIKE '%championfootballer@outlook.com%'
+             OR "content" LIKE '%support@championfootballer.co.uk%'
+             OR ("key" = 'privacy_policy' AND "content" LIKE '%under 18 years of age%');
+        `);
+      } catch (legacyErr) {
+        console.warn('Legacy email content update skipped:', legacyErr);
+      }
 
       // 3. Seed missing Static Content Items safely (Preserves admin-edited content)
       for (const item of DEFAULT_ITEMS) {

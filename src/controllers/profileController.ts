@@ -133,6 +133,18 @@ export const updateProfile = async (ctx: Context) => {
     }
   }
 
+  if (Object.prototype.hasOwnProperty.call(updateData, 'age')) {
+    const age = Number(updateData.age);
+    if (!Number.isInteger(age) || age < 13 || age > 65) {
+      if (Number.isInteger(age) && age < 13) {
+        ctx.throw(400, "You must be 13 years or older to use Champion Footballer.");
+      }
+      ctx.throw(400, "Age must be between 13 and 65");
+      return;
+    }
+    updateData.age = age;
+  }
+
   // Merge partial skills payload with existing skills so unchanged values are preserved.
   if (Object.prototype.hasOwnProperty.call(updateData, 'skills')) {
     const incomingSkills = updateData.skills;
