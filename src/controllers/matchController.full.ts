@@ -179,8 +179,8 @@ export const calculateMatchupPrediction = async (
   const removedObj = customRemoved || matchRow?.removed || { home: [], away: [] };
   const removedHome = new Set((removedObj.home || []).map(String));
   const removedAway = new Set((removedObj.away || []).map(String));
-  const homeRemovedIds = (removedObj.home || []).map(String).filter(Boolean);
-  const awayRemovedIds = (removedObj.away || []).map(String).filter(Boolean);
+  const homeRemovedIds: string[] = Array.from(new Set<string>((removedObj.home || []).map(String).filter(Boolean)));
+  const awayRemovedIds: string[] = Array.from(new Set<string>((removedObj.away || []).map(String).filter(Boolean)));
 
   const activeHomeIds = (homePlayerIds || []).map(String).filter(id => id && !removedHome.has(id));
   const activeAwayIds = (awayPlayerIds || []).map(String).filter(id => id && !removedAway.has(id));
@@ -220,7 +220,7 @@ export const calculateMatchupPrediction = async (
     };
   }
 
-  const allPlayerIds = Array.from(new Set([...activeHomeIds, ...activeAwayIds, ...homeRemovedIds, ...awayRemovedIds]));
+  const allPlayerIds: string[] = Array.from(new Set<string>([...activeHomeIds, ...activeAwayIds, ...homeRemovedIds, ...awayRemovedIds]));
   const playerAvgMap: Record<string, number> = {};
   const playerDetailsMap: Record<string, { played: number; goals: number; avg: number }> = {};
   for (const uid of allPlayerIds) {
@@ -3267,6 +3267,7 @@ export const submitMatchPrediction = async (ctx: Context) => {
 
       const homeIds = body.homeIds || [];
       const awayIds = body.awayIds || [];
+      const customRemoved = (body as any).removed || (match as any).removed || { home: [], away: [] };
 
       const prediction = await calculateMatchupPrediction(
         match.leagueId || null,
@@ -3274,7 +3275,7 @@ export const submitMatchPrediction = async (ctx: Context) => {
         homeIds,
         awayIds,
         match.id,
-        (match as any).removed
+        customRemoved
       );
 
       await (match as any).update({
