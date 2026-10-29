@@ -14,7 +14,7 @@ import { MatchPlayerLayout } from '../models/MatchPlayerLayout';
 import { checkLeagueCompletion, checkLeagueCompletionBulk } from '../utils/leagueCompletion';
 import { invalidateCache as invalidateServerCache } from '../middleware/memoryCache';
 import { registeredUserWhere, isGuestUserRecord } from '../utils/playerIdentity';
-import { recalculateMatchXPForCurrentState } from './matchController.full';
+import { recalculateMatchXPForCurrentState, calculateMatchupPrediction } from './matchController.full';
 
 const { League, Match, User, MatchGuest } = models;
 
@@ -196,68 +196,19 @@ const computeTeamWinPercentages = async (params: {
   homeIds: string[];
   awayIds: string[];
   matchId?: string | null;
+  customRemoved?: { home?: string[]; away?: string[] } | null;
 }): Promise<{ homeWinPct: number; awayWinPct: number }> => {
-  const { leagueId, seasonId, homeIds, awayIds, matchId } = params;
-  const homePlayerIds = (homeIds || []).filter(Boolean);
-  const awayPlayerIds = (awayIds || []).filter(Boolean);
-
-  // Fetch guests if matchId is provided
-  let homeGuestsCount = 0;
-  let awayGuestsCount = 0;
-  if (matchId) {
-    const guests = await MatchGuest.findAll({ where: { matchId } });
-    guests.forEach((g: any) => {
-      if (normalizeTeam(g.team) === 'home') {
-        homeGuestsCount++;
-      } else {
-        awayGuestsCount++;
-      }
-    });
-  }
-
-  const homeCount = homePlayerIds.length + homeGuestsCount;
-  const awayCount = awayPlayerIds.length + awayGuestsCount;
-
-  if (!leagueId || !seasonId || (homeCount === 0 && awayCount === 0)) {
-    return { homeWinPct: 50, awayWinPct: 50 };
-  }
-
-  // Get average XP map and league average XP
-  const { avgMap, leagueAvgXPValue } = await getLeagueXPMap(leagueId, seasonId);
-
-  let homeSum = 0;
-  homePlayerIds.forEach(id => {
-    const xp = avgMap[id];
-    homeSum += (typeof xp === 'number' && Number.isFinite(xp)) ? xp : 0;
-  });
-  homeSum += homeGuestsCount * leagueAvgXPValue;
-
-  let awaySum = 0;
-  awayPlayerIds.forEach(id => {
-    const xp = avgMap[id];
-    awaySum += (typeof xp === 'number' && Number.isFinite(xp)) ? xp : 0;
-  });
-  awaySum += awayGuestsCount * leagueAvgXPValue;
-
-  const total = homeSum + awaySum;
-  let homeWinPct = 50;
-
-  if (total > 0) {
-    const factor = total / 100;
-    const awayPct = awaySum / factor;
-    homeWinPct = 100 - awayPct;
-  } else {
-    const totalCount = homeCount + awayCount;
-    if (totalCount > 0) {
-      homeWinPct = (homeCount / totalCount) * 100;
-    }
-  }
-
-  const homeClamped = clampPredictionPct(homeWinPct);
-
+  const prediction = await calculateMatchupPrediction(
+    params.leagueId,
+    params.seasonId,
+    params.homeIds,
+    params.awayIds,
+    params.matchId,
+    params.customRemoved
+  );
   return {
-    homeWinPct: homeClamped,
-    awayWinPct: 100 - homeClamped,
+    homeWinPct: prediction.matchupPct,
+    awayWinPct: 100 - prediction.matchupPct,
   };
 };
 
@@ -272,27 +223,21 @@ const updateMatchWinPercentages = async (matchId: string): Promise<void> => {
     if (!match) return;
 
     const removed = (match as any).removed || { home: [], away: [] };
-    const removedHome = new Set((removed.home || []).map(String));
-    const removedAway = new Set((removed.away || []).map(String));
+    const homeIds = ((match as any).homeTeamUsers || []).map((u: any) => String(u.id));
+    const awayIds = ((match as any).awayTeamUsers || []).map((u: any) => String(u.id));
 
-    const homeIds = ((match as any).homeTeamUsers || [])
-      .map((u: any) => String(u.id))
-      .filter((id: string) => !removedHome.has(id));
-    const awayIds = ((match as any).awayTeamUsers || [])
-      .map((u: any) => String(u.id))
-      .filter((id: string) => !removedAway.has(id));
-
-    const prediction = await computeTeamWinPercentages({
-      leagueId: match.leagueId || null,
-      seasonId: match.seasonId || null,
+    const prediction = await calculateMatchupPrediction(
+      match.leagueId || null,
+      match.seasonId || null,
       homeIds,
       awayIds,
-      matchId: match.id,
-    });
+      match.id,
+      removed
+    );
 
     await match.update({
-      homeWinPct: prediction.homeWinPct,
-      awayWinPct: prediction.awayWinPct,
+      homeWinPct: prediction.matchupPct,
+      awayWinPct: 100 - prediction.matchupPct,
     } as any);
   } catch (err) {
     console.warn('[updateMatchWinPercentages] Failed to update win percentages:', err);
@@ -2141,10 +2086,12 @@ export const saveLayout = async (ctx: Context) => {
 // ── Remove player from match team ────────────────────────────────────────
 export const removePlayerFromTeam = async (ctx: Context) => {
   const { matchId } = ctx.params;
-  const { team, userId } = ctx.request.body as { team?: string; userId?: string };
+  const body = (ctx.request.body || {}) as { team?: string; userId?: string; playerId?: string };
+  const team = body.team;
+  const userId = body.userId || body.playerId;
   if (!team || !userId) {
     ctx.status = 400;
-    ctx.body = { success: false, message: 'team and userId required' };
+    ctx.body = { success: false, message: 'team and userId (or playerId) required' };
     return;
   }
   const side = team === 'away' ? 'away' : 'home';
