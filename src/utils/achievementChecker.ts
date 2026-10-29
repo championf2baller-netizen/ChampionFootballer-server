@@ -16,6 +16,7 @@ export type RewardAchievementId =
 export interface AchievementMatchInput {
   id: string;
   leagueId: string;
+  seasonId?: string | null;
   homeTeamGoals: number;
   awayTeamGoals: number;
   homeTeamUserIds: string[];
@@ -66,6 +67,7 @@ export interface ComputedAchievementState {
 
 export interface ComputeAchievementOptions {
   totalMatchesByLeague?: Record<string, number>;
+  totalMatchesBySeason?: Record<string, number>;
 }
 
 const REWARD_ORDER: RewardAchievementId[] = [
@@ -100,6 +102,15 @@ const XP_BY_ID: Record<RewardAchievementId, number> = xpAchievements.reduce((acc
 const normalizeId = (value: unknown): string => {
   if (value === null || value === undefined) return '';
   return String(value).trim().toLowerCase();
+};
+
+const getSeasonScopeKey = (leagueId: string, seasonId?: string | null): string => {
+  const normSeason = normalizeId(seasonId);
+  const normLeague = normalizeId(leagueId);
+  if (normSeason && normLeague) return `${normLeague}:${normSeason}`;
+  if (normSeason) return normSeason;
+  if (normLeague) return `${normLeague}:default`;
+  return 'default';
 };
 
 const comparableId = (value: unknown): string => {
@@ -209,6 +220,7 @@ export const toAchievementMatchInput = (match: any): AchievementMatchInput => {
   return {
     id: normalizeId(match?.id),
     leagueId: normalizeId(match?.leagueId ?? match?.league_id),
+    seasonId: normalizeId(match?.seasonId ?? match?.season_id) || null,
     homeTeamGoals: toNumber(match?.homeTeamGoals ?? match?.homeGoals ?? match?.homeScore ?? match?.score?.home ?? match?.home_goals ?? match?.home_score),
     awayTeamGoals: toNumber(match?.awayTeamGoals ?? match?.awayGoals ?? match?.awayScore ?? match?.score?.away ?? match?.away_goals ?? match?.away_score),
     homeTeamUserIds: toIdArray(match?.homeTeamUsers ?? match?.homeTeamUserIds ?? match?.homeUsers ?? match?.home_team_user_ids),
@@ -233,18 +245,22 @@ export const computeAchievementState = (
   options?: ComputeAchievementOptions
 ): ComputedAchievementState => {
   const normalizedUserId = normalizeId(userId);
-  const byLeague: Record<string, MatchSummary[]> = {};
-  const providedTotals = options?.totalMatchesByLeague;
-  const totalMatchesByLeague: Record<string, number> = providedTotals ? { ...providedTotals } : {};
+  const bySeason: Record<string, MatchSummary[]> = {};
+  const providedSeasonTotals = options?.totalMatchesBySeason;
+  const providedLeagueTotals = options?.totalMatchesByLeague;
+  const totalMatchesBySeason: Record<string, number> = providedSeasonTotals ? { ...providedSeasonTotals } : {};
 
   const sortedMatches = [...matches]
-    .filter((m) => normalizeId(m.id) !== '' && normalizeId(m.leagueId) !== '')
+    .filter((m) => normalizeId(m.id) !== '')
     .sort((a, b) => a.time - b.time);
 
   for (const match of sortedMatches) {
     const leagueId = normalizeId(match.leagueId);
-    if (!providedTotals || totalMatchesByLeague[leagueId] === undefined) {
-      totalMatchesByLeague[leagueId] = (totalMatchesByLeague[leagueId] || 0) + 1;
+    const seasonId = normalizeId(match.seasonId);
+    const seasonKey = getSeasonScopeKey(leagueId, seasonId);
+
+    if (!providedSeasonTotals || totalMatchesBySeason[seasonKey] === undefined) {
+      totalMatchesBySeason[seasonKey] = (totalMatchesBySeason[seasonKey] || 0) + 1;
     }
 
     const statLine = statsByMatch.get(normalizeId(match.id)) || { goals: 0, assists: 0 };
@@ -273,8 +289,8 @@ export const computeAchievementState = (
     const motmWinnerId = getTopMotmWinner(match.votePlayerIds);
     const wonMotmAward = sameComparableId(motmWinnerId, normalizedUserId);
 
-    if (!byLeague[leagueId]) byLeague[leagueId] = [];
-    byLeague[leagueId].push({
+    if (!bySeason[seasonKey]) bySeason[seasonKey] = [];
+    bySeason[seasonKey].push({
       goals: Number(statLine.goals || 0),
       assists: Number(statLine.assists || 0),
       conceded: oppGoals,
@@ -308,7 +324,7 @@ export const computeAchievementState = (
   let ironWillBestTotal = 0;
   let ironWillBestPercent = 0;
 
-  for (const [leagueId, arr] of Object.entries(byLeague)) {
+  for (const [seasonKey, arr] of Object.entries(bySeason)) {
     goalRushBest = Math.max(goalRushBest, longestStreak(arr, (m) => m.goals > 0));
     goalRushCount += countStreakCompletions(arr, (m) => m.goals > 0, 5);
 
@@ -318,37 +334,44 @@ export const computeAchievementState = (
     tripleTreatBest = Math.max(tripleTreatBest, longestStreak(arr, (m) => m.goals >= 3));
     tripleTreatCount += countStreakCompletions(arr, (m) => m.goals >= 3, 3);
 
-    const captainWinsInLeague = arr.filter((m) => m.isCaptainWin).length;
-    leaderOfLegendsBest = Math.max(leaderOfLegendsBest, captainWinsInLeague);
-    leaderOfLegendsCount += Math.floor(captainWinsInLeague / 3);
+    const captainWinsInSeason = arr.filter((m) => m.isCaptainWin).length;
+    leaderOfLegendsBest = Math.max(leaderOfLegendsBest, captainWinsInSeason);
+    leaderOfLegendsCount += Math.floor(captainWinsInSeason / 3);
 
-    const xFactorMatchesInLeague = arr.filter((m) => m.hasXFactorPick).length;
-    xFactorBest = Math.max(xFactorBest, xFactorMatchesInLeague);
-    xFactorCount += Math.floor(xFactorMatchesInLeague / 5);
+    const xFactorMatchesInSeason = arr.filter((m) => m.hasXFactorPick).length;
+    xFactorBest = Math.max(xFactorBest, xFactorMatchesInSeason);
+    xFactorCount += Math.floor(xFactorMatchesInSeason / 5);
 
-    const motmAwardsInLeague = arr.filter((m) => m.wonMotmAward).length;
-    spotlightStarBest = Math.max(spotlightStarBest, motmAwardsInLeague);
-    spotlightStarCount += Math.floor(motmAwardsInLeague / 3);
+    const motmAwardsInSeason = arr.filter((m) => m.wonMotmAward).length;
+    spotlightStarBest = Math.max(spotlightStarBest, motmAwardsInSeason);
+    spotlightStarCount += Math.floor(motmAwardsInSeason / 3);
 
-    const cleanSheetsInLeague = arr.filter((m) => m.cleanSheetTeam).length;
-    findersKeepersBest = Math.max(findersKeepersBest, cleanSheetsInLeague);
-    findersKeepersCount += Math.floor(cleanSheetsInLeague / 3);
+    const cleanSheetsInSeason = arr.filter((m) => m.cleanSheetTeam).length;
+    findersKeepersBest = Math.max(findersKeepersBest, cleanSheetsInSeason);
+    findersKeepersCount += Math.floor(cleanSheetsInSeason / 3);
 
     winStreakXBest = Math.max(winStreakXBest, longestStreak(arr, (m) => m.result === 'W'));
     winStreakXCount += countStreakCompletions(arr, (m) => m.result === 'W', 10);
 
-    const totalMatchesInLeague = totalMatchesByLeague[leagueId] || 0;
-    const playedMatchesInLeague = arr.length;
-    if (totalMatchesInLeague >= 10) {
-      const playedPercent = playedMatchesInLeague / totalMatchesInLeague;
+    const rawSeasonId = seasonKey.includes(':') ? seasonKey.split(':')[1] : seasonKey;
+    const rawLeagueId = seasonKey.includes(':') ? seasonKey.split(':')[0] : '';
+    const totalMatchesInSeason =
+      totalMatchesBySeason[seasonKey] ??
+      (rawSeasonId && totalMatchesBySeason[rawSeasonId] !== undefined ? totalMatchesBySeason[rawSeasonId] : undefined) ??
+      (rawLeagueId && providedLeagueTotals && providedLeagueTotals[rawLeagueId] !== undefined ? providedLeagueTotals[rawLeagueId] : 0) ??
+      0;
+
+    const playedMatchesInSeason = arr.length;
+    if (totalMatchesInSeason >= 10) {
+      const playedPercent = playedMatchesInSeason / totalMatchesInSeason;
       if (playedPercent >= 0.9) ironWillCount += 1;
       if (
         playedPercent > ironWillBestPercent ||
-        (playedPercent === ironWillBestPercent && totalMatchesInLeague > ironWillBestTotal)
+        (playedPercent === ironWillBestPercent && totalMatchesInSeason > ironWillBestTotal)
       ) {
         ironWillBestPercent = playedPercent;
-        ironWillBestPlayed = playedMatchesInLeague;
-        ironWillBestTotal = totalMatchesInLeague;
+        ironWillBestPlayed = playedMatchesInSeason;
+        ironWillBestTotal = totalMatchesInSeason;
       }
     }
   }
@@ -360,7 +383,7 @@ export const computeAchievementState = (
       count: goalRushCount,
       xp: XP_BY_ID.scoring_10_consecutive || 0,
       unlocked: goalRushCount > 0,
-      progressText: `Best scoring streak in a league: ${goalRushBest}/5`,
+      progressText: `Best scoring streak in a season: ${goalRushBest}/5`,
     },
     {
       id: 'assist_10_consecutive',
@@ -368,7 +391,7 @@ export const computeAchievementState = (
       count: pureMagicCount,
       xp: XP_BY_ID.assist_10_consecutive || 0,
       unlocked: pureMagicCount > 0,
-      progressText: `Best assist streak in a league: ${pureMagicBest}/5`,
+      progressText: `Best assist streak in a season: ${pureMagicBest}/5`,
     },
     {
       id: 'hat_trick_3_matches',
@@ -376,7 +399,7 @@ export const computeAchievementState = (
       count: tripleTreatCount,
       xp: XP_BY_ID.hat_trick_3_matches || 0,
       unlocked: tripleTreatCount > 0,
-      progressText: `Best hat-trick streak in a league: ${tripleTreatBest}/3`,
+      progressText: `Best hat-trick streak in a season: ${tripleTreatBest}/3`,
     },
     {
       id: 'captain_5_wins',
@@ -384,7 +407,7 @@ export const computeAchievementState = (
       count: leaderOfLegendsCount,
       xp: XP_BY_ID.captain_5_wins || 0,
       unlocked: leaderOfLegendsCount > 0,
-      progressText: `Most captain wins in one league: ${leaderOfLegendsBest}/3`,
+      progressText: `Most captain wins in one season: ${leaderOfLegendsBest}/3`,
     },
     {
       id: 'captain_performance_3',
@@ -392,7 +415,7 @@ export const computeAchievementState = (
       count: xFactorCount,
       xp: XP_BY_ID.captain_performance_3 || 0,
       unlocked: xFactorCount > 0,
-      progressText: `Most qualifying matches in one league: ${xFactorBest}/5`,
+      progressText: `Most qualifying matches in one season: ${xFactorBest}/5`,
     },
     {
       id: 'motm_4_consecutive',
@@ -400,7 +423,7 @@ export const computeAchievementState = (
       count: spotlightStarCount,
       xp: XP_BY_ID.motm_4_consecutive || 0,
       unlocked: spotlightStarCount > 0,
-      progressText: `Most MOTM awards in one league: ${spotlightStarBest}/3`,
+      progressText: `Most MOTM awards in one season: ${spotlightStarBest}/3`,
     },
     {
       id: 'clean_sheet_5_wins',
@@ -408,7 +431,7 @@ export const computeAchievementState = (
       count: findersKeepersCount,
       xp: XP_BY_ID.clean_sheet_5_wins || 0,
       unlocked: findersKeepersCount > 0,
-      progressText: `Most clean sheets in one league: ${findersKeepersBest}/3`,
+      progressText: `Most clean sheets in one season: ${findersKeepersBest}/3`,
     },
     {
       id: 'top_spot_10_matches',
@@ -418,10 +441,10 @@ export const computeAchievementState = (
       unlocked: ironWillCount > 0,
       progressText:
         ironWillBestTotal > 0
-          ? `Best participation in a league: ${ironWillBestPlayed}/${ironWillBestTotal} (${Math.round(
+          ? `Best participation in a season: ${ironWillBestPlayed}/${ironWillBestTotal} (${Math.round(
               ironWillBestPercent * 100
             )}%)`
-          : 'No completed league with 10+ matches yet',
+          : 'No completed season with 10+ matches yet',
     },
     {
       id: 'consecutive_10_victories',
@@ -429,7 +452,7 @@ export const computeAchievementState = (
       count: winStreakXCount,
       xp: XP_BY_ID.consecutive_10_victories || 0,
       unlocked: winStreakXCount > 0,
-      progressText: `Best win streak in a league: ${winStreakXBest}/10`,
+      progressText: `Best win streak in a season: ${winStreakXBest}/10`,
     },
   ];
 

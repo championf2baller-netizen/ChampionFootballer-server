@@ -1359,8 +1359,9 @@ router.get('/:id/achievements', required, async (ctx) => {
       new Set(matchesToProcess.map((m: any) => String(m.leagueId)).filter((id: string) => id !== ''))
     );
 
-    // Compute total matches by league for Iron Will badge calculation
+    // Compute total matches by league and season for Iron Will badge calculation
     const totalMatchesByLeague: Record<string, number> = {};
+    const totalMatchesBySeason: Record<string, number> = {};
     if (leagueIds.length > 0) {
       const countWhere: any = {
         status: { [Op.in]: COMPLETED_MATCH_STATUSES },
@@ -1382,13 +1383,27 @@ router.get('/:id/achievements', required, async (ctx) => {
         where: countWhere,
         attributes: [
           'leagueId',
+          'seasonId',
           [sequelize.fn('COUNT', sequelize.col('id')), 'count']
         ],
-        group: ['leagueId'],
+        group: ['leagueId', 'seasonId'],
         raw: true
       });
       (matchCounts as any[]).forEach((row) => {
-        totalMatchesByLeague[String(row.leagueId)] = Number(row.count || 0);
+        const lKey = String(row.leagueId || '').trim().toLowerCase();
+        const sKey = String(row.seasonId || '').trim().toLowerCase();
+        const count = Number(row.count || 0);
+        if (lKey) {
+          totalMatchesByLeague[lKey] = (totalMatchesByLeague[lKey] || 0) + count;
+        }
+        if (lKey && sKey) {
+          totalMatchesBySeason[`${lKey}:${sKey}`] = count;
+          totalMatchesBySeason[sKey] = count;
+        } else if (sKey) {
+          totalMatchesBySeason[sKey] = count;
+        } else if (lKey) {
+          totalMatchesBySeason[`${lKey}:default`] = count;
+        }
       });
     }
 
@@ -1466,7 +1481,10 @@ router.get('/:id/achievements', required, async (ctx) => {
     }
 
     const achievementMatches = processedMatches.map((m: any) => toAchievementMatchInput(m));
-    const computed = computeAchievementState(playerId, achievementMatches, statsByMatch, { totalMatchesByLeague });
+    const computed = computeAchievementState(playerId, achievementMatches, statsByMatch, {
+      totalMatchesByLeague,
+      totalMatchesBySeason,
+    });
 
     const badges = [
       {

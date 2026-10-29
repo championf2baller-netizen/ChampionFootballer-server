@@ -335,6 +335,7 @@ router.get('/me/achievements', required, async (ctx) => {
       attributes: [
         'id',
         'leagueId',
+        'seasonId',
         'homeTeamGoals',
         'awayTeamGoals',
         'date',
@@ -371,8 +372,8 @@ router.get('/me/achievements', required, async (ctx) => {
       leagueIds.length > 0
         ? Match.findAll({
             where: { leagueId: { [Op.in]: leagueIds as any }, status: { [Op.in]: COMPLETED_MATCH_STATUSES } },
-            attributes: ['leagueId', [sequelize.fn('COUNT', sequelize.col('id')), 'totalMatches']],
-            group: ['leagueId'],
+            attributes: ['leagueId', 'seasonId', [sequelize.fn('COUNT', sequelize.col('id')), 'totalMatches']],
+            group: ['leagueId', 'seasonId'],
             raw: true,
           })
         : Promise.resolve([]),
@@ -400,10 +401,22 @@ router.get('/me/achievements', required, async (ctx) => {
     ]);
 
     const totalMatchesByLeague: Record<string, number> = {};
+    const totalMatchesBySeason: Record<string, number> = {};
     for (const row of leagueTotalRows as any[]) {
-      const key = String(row.leagueId || '').trim();
-      if (!key) continue;
-      totalMatchesByLeague[key] = Number(row.totalMatches || 0);
+      const lKey = String(row.leagueId || '').trim().toLowerCase();
+      const sKey = String(row.seasonId || '').trim().toLowerCase();
+      const count = Number(row.totalMatches || 0);
+      if (lKey) {
+        totalMatchesByLeague[lKey] = (totalMatchesByLeague[lKey] || 0) + count;
+      }
+      if (lKey && sKey) {
+        totalMatchesBySeason[`${lKey}:${sKey}`] = count;
+        totalMatchesBySeason[sKey] = count;
+      } else if (sKey) {
+        totalMatchesBySeason[sKey] = count;
+      } else if (lKey) {
+        totalMatchesBySeason[`${lKey}:default`] = count;
+      }
     }
 
     const votesByMatch = new Map<string, Array<{ votedForId: string; category?: string }>>();
@@ -441,6 +454,7 @@ router.get('/me/achievements', required, async (ctx) => {
 
     const computed = computeAchievementState(userId, achievementMatches, statsByMatch, {
       totalMatchesByLeague,
+      totalMatchesBySeason,
     });
 
     const badges = [
