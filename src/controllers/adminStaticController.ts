@@ -50,7 +50,7 @@ const DEFAULT_ITEMS = [
     key: 'reward_hat_trick_3_matches',
     category: 'rewards',
     title: 'Triple Treat',
-    content: 'Score a hat-trick in 3 consecutive matches in a single season',
+    content: 'Score 3 hat-tricks in a single season (every 3 goals in a match count as a hat-trick)',
     metadata: { xp: 150, rewardId: 'hat_trick_3_matches' }
   },
   {

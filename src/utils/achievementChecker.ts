@@ -160,6 +160,45 @@ const countStreakCompletions = (
   return awards;
 };
 
+const computeTripleTreatForMatches = (
+  arr: MatchSummary[]
+): { count: number; best: number } => {
+  let awards = 0;
+  let best = 0;
+  let window: Array<{ matchIndex: number; hatTricks: number }> = [];
+
+  for (let i = 0; i < arr.length; i++) {
+    const m = arr[i];
+    const h = Math.floor((m.goals || 0) / 3);
+
+    // Keep only active matches within the last 3 matches (i-2, i-1, i)
+    window = window.filter((entry) => entry.matchIndex >= i - 2 && entry.hatTricks > 0);
+
+    if (h > 0) {
+      window.push({ matchIndex: i, hatTricks: h });
+    }
+
+    const windowSum = window.reduce((sum, entry) => sum + entry.hatTricks, 0);
+    best = Math.max(best, windowSum);
+
+    if (windowSum >= 3) {
+      const newAwards = Math.floor(windowSum / 3);
+      awards += newAwards;
+
+      let toConsume = newAwards * 3;
+      for (const entry of window) {
+        if (toConsume <= 0) break;
+        const take = Math.min(entry.hatTricks, toConsume);
+        entry.hatTricks -= take;
+        toConsume -= take;
+      }
+      window = window.filter((entry) => entry.hatTricks > 0);
+    }
+  }
+
+  return { count: awards, best: Math.min(best, 3) };
+};
+
 const buildVoteCounts = (votePlayerIds: string[]): Record<string, number> => {
   const counts: Record<string, number> = {};
   for (const votedForId of votePlayerIds) {
@@ -331,8 +370,9 @@ export const computeAchievementState = (
     pureMagicBest = Math.max(pureMagicBest, longestStreak(arr, (m) => m.assists > 0));
     pureMagicCount += countStreakCompletions(arr, (m) => m.assists > 0, 5);
 
-    tripleTreatBest = Math.max(tripleTreatBest, longestStreak(arr, (m) => m.goals >= 3));
-    tripleTreatCount += countStreakCompletions(arr, (m) => m.goals >= 3, 3);
+    const tripleTreat = computeTripleTreatForMatches(arr);
+    tripleTreatBest = Math.max(tripleTreatBest, tripleTreat.best);
+    tripleTreatCount += tripleTreat.count;
 
     const captainWinsInSeason = arr.filter((m) => m.isCaptainWin).length;
     leaderOfLegendsBest = Math.max(leaderOfLegendsBest, captainWinsInSeason);
@@ -399,7 +439,7 @@ export const computeAchievementState = (
       count: tripleTreatCount,
       xp: XP_BY_ID.hat_trick_3_matches || 0,
       unlocked: tripleTreatCount > 0,
-      progressText: `Best hat-trick streak in a season: ${tripleTreatBest}/3`,
+      progressText: `Hat-tricks within 3 matches: ${tripleTreatBest}/3`,
     },
     {
       id: 'captain_5_wins',
