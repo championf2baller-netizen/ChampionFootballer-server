@@ -15,6 +15,7 @@ import { checkLeagueCompletion, checkLeagueCompletionBulk } from '../utils/leagu
 import { invalidateCache as invalidateServerCache } from '../middleware/memoryCache';
 import { registeredUserWhere, isGuestUserRecord } from '../utils/playerIdentity';
 import { recalculateMatchXPForCurrentState, calculateMatchupPrediction } from './matchController.full';
+import { getLeaguePlayerRanks, calculateAndSaveLeaguePlayerRanks } from '../services/leagueRankService';
 
 const { League, Match, User, MatchGuest } = models;
 
@@ -2553,7 +2554,7 @@ export const getLeagueById = async (ctx: Context) => {
 
   try {
     const league = await League.findByPk(id, {
-      attributes: ['id', 'name', 'inviteCode', 'active', 'archived', 'image', 'maxGames', 'createdAt', 'updatedAt']
+      attributes: ['id', 'name', 'inviteCode', 'active', 'archived', 'image', 'maxGames', 'showPoints', 'createdAt', 'updatedAt']
     });
 
     if (!league) {
@@ -2661,6 +2662,50 @@ export const getLeagueById = async (ctx: Context) => {
       ? (formattedSeasons.find((s: any) => String(s.id) === effectiveSeasonId) || formattedSeasons.find((s: any) => s.isActive) || formattedSeasons[0] || null)
       : (formattedSeasons.find((s: any) => s.isActive) || formattedSeasons[0] || null);
 
+    // Load persisted rank movements (rankChange) for this league and requested season
+    let leagueRankChanges: Record<string, number> = {};
+    let seasonRankChanges: Record<string, number> = {};
+    try {
+      const seasonRanksData = await getLeaguePlayerRanks(id, effectiveSeasonId || null);
+      seasonRankChanges = seasonRanksData.rankChanges || {};
+
+      if (effectiveSeasonId) {
+        const overallRanksData = await getLeaguePlayerRanks(id, null);
+        leagueRankChanges = overallRanksData.rankChanges || {};
+      } else {
+        leagueRankChanges = seasonRankChanges;
+      }
+
+      const activeRankChanges = (effectiveSeasonId && Object.keys(seasonRankChanges).length > 0)
+        ? seasonRankChanges
+        : leagueRankChanges;
+
+      // Attach rankChange to membersJson
+      membersJson.forEach((m: any) => {
+        m.rankChange = activeRankChanges[m.id] ?? 0;
+      });
+
+      // Attach rankChange to formattedSeasons players
+      formattedSeasons.forEach((season: any) => {
+        const playerList = season.members || season.players || [];
+        playerList.forEach((p: any) => {
+          const pObj = typeof p.toJSON === 'function' ? p : p;
+          pObj.rankChange = (String(season.id) === String(effectiveSeasonId)
+            ? seasonRankChanges[p.id]
+            : (leagueRankChanges[p.id] ?? 0)) ?? 0;
+        });
+      });
+
+      // Populate both key styles in seasonRankChanges for seamless client lookup
+      if (effectiveSeasonId) {
+        Object.keys(seasonRankChanges).forEach((uid) => {
+          seasonRankChanges[`${effectiveSeasonId}_${uid}`] = seasonRankChanges[uid];
+        });
+      }
+    } catch (rankErr) {
+      console.error('Failed to attach rank changes in getLeagueById:', rankErr);
+    }
+
     // Fast path for callers that only need league metadata (name/admin/members/seasons).
     if (!includeMatches) {
       ctx.body = {
@@ -2673,6 +2718,7 @@ export const getLeagueById = async (ctx: Context) => {
           archived: Boolean((league as any).archived),
           image: (league as any).image,
           maxGames: league.maxGames,
+          showPoints: league.showPoints,
           createdAt: league.createdAt,
           updatedAt: league.updatedAt,
           members: membersJson,
@@ -2680,7 +2726,9 @@ export const getLeagueById = async (ctx: Context) => {
           seasons: formattedSeasons,
           currentSeason,
           administrators: adminsJson,
-          isAdmin
+          isAdmin,
+          rankChanges: leagueRankChanges,
+          seasonRankChanges: seasonRankChanges
         }
       };
       cache.set(cacheKey, ctx.body, LEAGUE_DETAIL_META_CACHE_TTL_SECONDS);
@@ -2862,6 +2910,7 @@ export const getLeagueById = async (ctx: Context) => {
         archived: Boolean((league as any).archived),
         image: (league as any).image,
         maxGames: league.maxGames,
+        showPoints: league.showPoints,
         createdAt: league.createdAt,
         updatedAt: league.updatedAt,
         status: lifecycle.status,
@@ -2874,7 +2923,9 @@ export const getLeagueById = async (ctx: Context) => {
         currentSeason,
         administrators: adminsJson,
         isAdmin,
-        computedStatus
+        computedStatus,
+        rankChanges: leagueRankChanges,
+        seasonRankChanges: seasonRankChanges
       }
     };
     cache.set(cacheKey, ctx.body, LEAGUE_DETAIL_WITH_MATCHES_CACHE_TTL_SECONDS);

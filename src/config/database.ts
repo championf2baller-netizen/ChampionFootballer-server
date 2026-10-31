@@ -327,7 +327,33 @@ async function ensureSeasonNumberUniqueIndex(): Promise<void> {
       WHERE "deleted" = false;
     `);
   } catch (err) {
-    console.warn('âڑ ï¸ڈ ensureSeasonNumberUniqueIndex skipped:', (err as any).message);
+    console.warn('⚠️ ensureSeasonNumberUniqueIndex skipped:', (err as any).message);
+  }
+}
+
+async function ensureLeaguePlayerRanksTable(): Promise<void> {
+  try {
+    await sequelize.query(`
+      CREATE TABLE IF NOT EXISTS "LeaguePlayerRanks" (
+        "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        "leagueId" UUID NOT NULL REFERENCES "Leagues"("id") ON DELETE CASCADE,
+        "seasonId" UUID NULL REFERENCES "Seasons"("id") ON DELETE CASCADE,
+        "userId" UUID NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+        "currentRank" INTEGER,
+        "previousRank" INTEGER,
+        "rankChange" INTEGER NOT NULL DEFAULT 0,
+        "lastMatchId" UUID,
+        "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+        "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+      );
+    `);
+    await sequelize.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS "idx_league_player_ranks_unique" 
+      ON "LeaguePlayerRanks" ("leagueId", "userId", COALESCE("seasonId", '00000000-0000-0000-0000-000000000000'::uuid));
+    `);
+    console.log('✅ Ensured LeaguePlayerRanks table and index exist');
+  } catch (err: any) {
+    console.warn('⚠️ ensureLeaguePlayerRanksTable skipped or error:', err?.message);
   }
 }
 
@@ -357,6 +383,7 @@ export async function initializeDatabase() {
     await ensureMatchDeletedColumn();
     await ensureLeagueLastActiveSeasonIdColumn();
     await ensureSeasonNumberUniqueIndex();
+    await ensureLeaguePlayerRanksTable();
 
     // Ensure DB NOTIFY/LISTEN infrastructure and triggers (idempotent)
     try {

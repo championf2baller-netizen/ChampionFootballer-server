@@ -10,6 +10,7 @@ import { sendCaptainConfirmations, notifyCaptainConfirmed, notifyCaptainRevision
 import Season from '../models/Season';
 import { checkAndCompleteLeagueAfterMatch, isLeagueLocked, invalidateLeagueCompletionCache } from '../utils/leagueCompletion';
 import { calculateAndAwardXPAchievements } from '../utils/xpAchievementsEngine';
+import { calculateAndSaveLeaguePlayerRanks } from '../services/leagueRankService';
 
 const { Match, Vote, User, MatchStatistics, League, MatchGuest, MatchAvailability } = models;
 
@@ -1351,6 +1352,17 @@ export const updateMatchGoals = async (ctx: Context) => {
       console.error('Could not recalculate match XP after score update:', recalcErr);
     }
 
+    if (match.leagueId) {
+      try {
+        await calculateAndSaveLeaguePlayerRanks(match.leagueId, match.seasonId || null, matchId);
+        if (match.seasonId) {
+          await calculateAndSaveLeaguePlayerRanks(match.leagueId, null, matchId);
+        }
+      } catch (rankErr) {
+        console.error('Failed to update league player ranks after score update:', rankErr);
+      }
+    }
+
     // Send informational notification to captains (optional, no longer gates the result)
     try {
       console.log('📧 Sending captain confirmation notifications for match:', matchId);
@@ -1562,6 +1574,17 @@ export const confirmMatchResult = async (ctx: Context) => {
       // NOTE: XP is now awarded IMMEDIATELY when stats are submitted (in submitMatchStats)
       // NO MORE XP awarding here to prevent DOUBLE XP
       console.log(`ℹ️ XP already awarded during stats submission - skipping here to prevent double XP`);
+
+      if (match.leagueId) {
+        try {
+          await calculateAndSaveLeaguePlayerRanks(match.leagueId, match.seasonId || null, matchId);
+          if (match.seasonId) {
+            await calculateAndSaveLeaguePlayerRanks(match.leagueId, null, matchId);
+          }
+        } catch (rankErr) {
+          console.error('Failed to update league player ranks on captain confirmation:', rankErr);
+        }
+      }
 
       // Send confirmation notification to the captain who just confirmed
       try {
@@ -2124,6 +2147,17 @@ If you believe the score is incorrect, please contact the League Admin.`;
       await recalculateMatchXPForCurrentState(matchId);
     } catch (recalcErr) {
       console.error('Could not recalculate match XP after stats submission:', recalcErr);
+    }
+
+    if (match.leagueId) {
+      try {
+        await calculateAndSaveLeaguePlayerRanks(match.leagueId, match.seasonId || null, matchId);
+        if (match.seasonId) {
+          await calculateAndSaveLeaguePlayerRanks(match.leagueId, null, matchId);
+        }
+      } catch (rankErr) {
+        console.error('Failed to update league player ranks after stats submission:', rankErr);
+      }
     }
 
     console.log(`✅ Stats submission complete - sending response`);
@@ -2764,6 +2798,17 @@ export const updateMatch = async (ctx: Context) => {
         await recalculateMatchXPForCurrentState(id);
       } catch (recalcErr) {
         console.error('Could not recalculate match XP after match edit:', recalcErr);
+      }
+
+      if (match.leagueId) {
+        try {
+          await calculateAndSaveLeaguePlayerRanks(match.leagueId, match.seasonId || null, id);
+          if (match.seasonId) {
+            await calculateAndSaveLeaguePlayerRanks(match.leagueId, null, id);
+          }
+        } catch (rankErr) {
+          console.error('Failed to update league player ranks after match edit:', rankErr);
+        }
       }
     }
 
