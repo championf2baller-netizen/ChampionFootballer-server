@@ -27,9 +27,9 @@ export const getLeaderboard = async (ctx: Context) => {
   const positionType = ctx.query.positionType as string | undefined;
   const requestedLimitRaw = Number(ctx.query.limit);
   const topLimit = Number.isFinite(requestedLimitRaw) && requestedLimitRaw > 0
-    ? Math.min(Math.floor(requestedLimitRaw), 50)
+    ? Math.min(Math.floor(requestedLimitRaw), 200)
     : 5;
-  const fetchLimit = Math.max(topLimit * 20, 50);
+  const fetchLimit = Math.max(topLimit * 5, 200);
   const forceRefresh =
     ctx.query.refresh === '1' ||
     ctx.query.nocache === '1' ||
