@@ -1,10 +1,10 @@
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '.env') });
+require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
 const { Pool } = require('pg');
 const { v4: uuidv4 } = require('uuid');
 
-const { computeAchievementState, toAchievementMatchInput } = require('./dist/utils/achievementChecker');
-const { xpAchievements } = require('./dist/utils/xpAchievements');
+const { computeAchievementState, toAchievementMatchInput } = require(path.resolve(__dirname, '../../dist/utils/achievementChecker'));
+const { xpAchievements } = require(path.resolve(__dirname, '../../dist/utils/xpAchievements'));
 
 const XP_BY_ID = xpAchievements.reduce((acc, ach) => {
   acc[ach.id] = ach.xp;
@@ -195,12 +195,14 @@ async function main() {
     });
 
     const achievementMatches = matches.map(m => {
-      const homeUsers = Array.from(homeMap.get(String(m.id)) || []).map(id => ({ id }));
-      const awayUsers = Array.from(awayMap.get(String(m.id)) || []).map(id => ({ id }));
+      const matchId = String(m.id);
+      const homeUsers = Array.from(homeMap.get(matchId) || []).map(id => ({ id }));
+      const awayUsers = Array.from(awayMap.get(matchId) || []).map(id => ({ id }));
       return toAchievementMatchInput({
         ...m,
         homeTeamUsers: homeUsers,
         awayTeamUsers: awayUsers,
+        votes: votesMap.get(matchId) || [],
       });
     });
 
