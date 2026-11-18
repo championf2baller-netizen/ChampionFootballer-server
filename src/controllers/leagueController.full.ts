@@ -16,6 +16,7 @@ import { invalidateCache as invalidateServerCache } from '../middleware/memoryCa
 import { registeredUserWhere, isGuestUserRecord } from '../utils/playerIdentity';
 import { recalculateMatchXPForCurrentState, calculateMatchupPrediction } from './matchController.full';
 import { getLeaguePlayerRanks, calculateAndSaveLeaguePlayerRanks } from '../services/leagueRankService';
+import { realtime } from '../services/realtime';
 
 const { League, Match, User, MatchGuest } = models;
 
@@ -442,6 +443,7 @@ const fetchUserLeaguesBasic = async (userId: string): Promise<LeagueListRow[]> =
       LEFT JOIN "LeagueAdmin" la
         ON la."leagueId" = l.id
       WHERE l.id IS NOT NULL
+        AND COALESCE(l.deleted, false) = false
         AND (lm."userId" = :userId OR la."userId" = :userId)
       ORDER BY l."createdAt" DESC
     `,
@@ -492,6 +494,7 @@ const fetchAllLeaguesAdminBasic = async (): Promise<LeagueListRow[]> => {
         (SELECT COUNT(*)::int FROM "Matches" m WHERE m."leagueId" = l.id) AS "totalMatchCount"
       FROM "Leagues" l
       WHERE l.id IS NOT NULL
+        AND COALESCE(l.deleted, false) = false
         AND COALESCE(l.archived, false) = false
       ORDER BY l."createdAt" DESC
     `,
@@ -3755,6 +3758,10 @@ export const updateLeagueStatus = async (ctx: Context) => {
     cache.clearPattern(`auth_status_`);
     cache.clearPattern(`league_${id}`);
     cache.clearPattern(`matches_league_${id}`);
+    cache.clearPattern(`all_leagues`);
+    try {
+      cache.del(`user_leagues_${ctx.state.user.userId}`);
+    } catch { }
     try {
       invalidateServerCache('/leagues');
       invalidateServerCache('/matches');
@@ -4045,6 +4052,10 @@ export const updateLeague = async (ctx: Context) => {
     cache.clearPattern(`auth_status_`);
     cache.clearPattern(`league_${id}`);
     cache.clearPattern(`matches_league_${id}`);
+    cache.clearPattern(`all_leagues`);
+    try {
+      cache.del(`user_leagues_${ctx.state.user.userId}`);
+    } catch { }
     try {
       invalidateServerCache('/leagues');
       invalidateServerCache('/matches');
@@ -4113,8 +4124,19 @@ export const deleteLeague = async (ctx: Context) => {
     const totalMatchesCreated = await Match.count({ where: { leagueId: id } });
     const hasAnyMatchesCreated = totalMatchesCreated > 0;
 
-    // Leagues with matches are automatically archived (soft delete) to protect player history
-    if (hasAnyMatchesCreated) {
+    const isHardRequested =
+      queryMode === 'hard' ||
+      bodyMode === 'hard' ||
+      ctx.query?.permanent === 'true' ||
+      (ctx.request as any)?.body?.permanent === true;
+
+    const isAlreadyArchived = Boolean((league as any).archived);
+
+    // If hard delete is explicitly requested or the league is already archived, do NOT soft delete
+    if (isHardRequested || isAlreadyArchived) {
+      softDelete = false;
+    } else if (hasAnyMatchesCreated) {
+      // Leagues with matches are automatically archived (soft delete) when deleting from active
       softDelete = true;
     }
 
@@ -4160,50 +4182,62 @@ export const deleteLeague = async (ctx: Context) => {
       return;
     }
 
-    const sequelize = League.sequelize!;
-    const tx = await sequelize.transaction();
-    const replacements = { leagueId: id };
+    const isPurgeRequested = ctx.query?.purge === 'true' || (ctx.request as any)?.body?.purge === true;
 
-    const runDelete = async (sql: string) => {
-      try {
-        await sequelize.query(sql, {
-          replacements,
-          type: QueryTypes.DELETE,
-          transaction: tx,
-        });
-      } catch (qErr: any) {
-        const code = qErr?.original?.code || qErr?.parent?.code || qErr?.code;
-        if (code === '42P01') {
-          console.warn('[deleteLeague] Optional table missing, skipping cleanup query');
-          return;
+    if (!isPurgeRequested) {
+      // Safe permanent delete: League is hidden from both Active and Archived sections,
+      // but all matches, match statistics, votes, seasons, and player XP remain 100% safe in the database.
+      await league.update({ active: false, archived: false, deleted: true });
+      await Season.update({ archived: false, deleted: true, isActive: false }, { where: { leagueId: id } });
+    } else {
+      // Hard purge only if explicitly requested via ?purge=true
+      const sequelize = League.sequelize!;
+      const tx = await sequelize.transaction();
+      const replacements = { leagueId: id };
+
+      const runDelete = async (sql: string) => {
+        try {
+          await sequelize.query(sql, {
+            replacements,
+            type: QueryTypes.DELETE,
+            transaction: tx,
+          });
+        } catch (qErr: any) {
+          const code = qErr?.original?.code || qErr?.parent?.code || qErr?.code;
+          if (code === '42P01' || code === '42703') {
+            console.warn('[deleteLeague] Optional table or column missing, skipping cleanup query');
+            return;
+          }
+          throw qErr;
         }
-        throw qErr;
+      };
+
+      try {
+        await runDelete(`DELETE FROM "Votes" WHERE "matchId" IN (SELECT id FROM "Matches" WHERE "leagueId" = :leagueId)`);
+        await runDelete(`DELETE FROM "match_statistics" WHERE "match_id" IN (SELECT id FROM "Matches" WHERE "leagueId" = :leagueId)`);
+        await runDelete(`DELETE FROM "MatchStatistics" WHERE "matchId" IN (SELECT id FROM "Matches" WHERE "leagueId" = :leagueId)`);
+        await runDelete(`DELETE FROM "MatchGuests" WHERE "matchId" IN (SELECT id FROM "Matches" WHERE "leagueId" = :leagueId)`);
+        await runDelete(`DELETE FROM "match_availabilities" WHERE "match_id" IN (SELECT id FROM "Matches" WHERE "leagueId" = :leagueId)`);
+        await runDelete(`DELETE FROM "match_player_layouts" WHERE "matchId" IN (SELECT id::text FROM "Matches" WHERE "leagueId" = :leagueId)`);
+        await runDelete(`DELETE FROM "MatchPlayerLayouts" WHERE "matchId" IN (SELECT id::text FROM "Matches" WHERE "leagueId" = :leagueId)`);
+        await runDelete(`DELETE FROM "UserHomeMatches" WHERE "matchId" IN (SELECT id FROM "Matches" WHERE "leagueId" = :leagueId)`);
+        await runDelete(`DELETE FROM "UserAwayMatches" WHERE "matchId" IN (SELECT id FROM "Matches" WHERE "leagueId" = :leagueId)`);
+        await runDelete(`DELETE FROM "UserMatchAvailability" WHERE "matchId" IN (SELECT id FROM "Matches" WHERE "leagueId" = :leagueId)`);
+        await runDelete(`DELETE FROM "UserMatchStatistics" WHERE "matchId" IN (SELECT id FROM "Matches" WHERE "leagueId" = :leagueId)`);
+        await runDelete(`DELETE FROM "SeasonPlayers" WHERE "seasonId" IN (SELECT id FROM "Seasons" WHERE "leagueId" = :leagueId)`);
+
+        await Match.destroy({ where: { leagueId: id }, transaction: tx });
+        await Season.destroy({ where: { leagueId: id }, transaction: tx });
+
+        await runDelete(`DELETE FROM "LeagueMember" WHERE "leagueId" = :leagueId`);
+        await runDelete(`DELETE FROM "LeagueAdmin" WHERE "leagueId" = :leagueId`);
+
+        await league.destroy({ transaction: tx });
+        await tx.commit();
+      } catch (hardErr) {
+        await tx.rollback();
+        throw hardErr;
       }
-    };
-
-    try {
-      await runDelete(`DELETE FROM "Votes" WHERE "matchId" IN (SELECT id FROM "Matches" WHERE "leagueId" = :leagueId)`);
-      await runDelete(`DELETE FROM "match_statistics" WHERE "match_id" IN (SELECT id FROM "Matches" WHERE "leagueId" = :leagueId)`);
-      await runDelete(`DELETE FROM "MatchGuests" WHERE "matchId" IN (SELECT id FROM "Matches" WHERE "leagueId" = :leagueId)`);
-      await runDelete(`DELETE FROM "match_availabilities" WHERE "match_id" IN (SELECT id FROM "Matches" WHERE "leagueId" = :leagueId)`);
-      await runDelete(`DELETE FROM "match_player_layouts" WHERE "matchId" IN (SELECT id::text FROM "Matches" WHERE "leagueId" = :leagueId)`);
-      await runDelete(`DELETE FROM "UserHomeMatches" WHERE "matchId" IN (SELECT id FROM "Matches" WHERE "leagueId" = :leagueId)`);
-      await runDelete(`DELETE FROM "UserAwayMatches" WHERE "matchId" IN (SELECT id FROM "Matches" WHERE "leagueId" = :leagueId)`);
-      await runDelete(`DELETE FROM "UserMatchAvailability" WHERE "matchId" IN (SELECT id FROM "Matches" WHERE "leagueId" = :leagueId)`);
-      await runDelete(`DELETE FROM "UserMatchStatistics" WHERE "matchId" IN (SELECT id FROM "Matches" WHERE "leagueId" = :leagueId)`);
-      await runDelete(`DELETE FROM "SeasonPlayers" WHERE "seasonId" IN (SELECT id FROM "Seasons" WHERE "leagueId" = :leagueId)`);
-
-      await Match.destroy({ where: { leagueId: id }, transaction: tx });
-      await Season.destroy({ where: { leagueId: id }, transaction: tx });
-
-      await runDelete(`DELETE FROM "LeagueMember" WHERE "leagueId" = :leagueId`);
-      await runDelete(`DELETE FROM "LeagueAdmin" WHERE "leagueId" = :leagueId`);
-
-      await league.destroy({ transaction: tx });
-      await tx.commit();
-    } catch (hardErr) {
-      await tx.rollback();
-      throw hardErr;
     }
 
     try {
@@ -4231,14 +4265,22 @@ export const deleteLeague = async (ctx: Context) => {
     cache.clearPattern(`auth_status_`);
     cache.clearPattern(`league_${id}`);
     cache.clearPattern(`matches_league_${id}`);
+    cache.clearPattern(`all_leagues`);
+    try {
+      cache.del(`user_leagues_${ctx.state.user.userId}`);
+    } catch { }
     try {
       invalidateServerCache('/leagues');
       invalidateServerCache('/matches');
     } catch { }
 
+    try {
+      realtime.broadcast('league-deleted', { id });
+    } catch { }
+
     ctx.body = {
       success: true,
-      message: 'League permanently deleted from database.'
+      message: 'League permanently deleted (player stats and XP preserved in database).'
     };
   } catch (err) {
     console.error('Delete league error', err);
@@ -4613,6 +4655,10 @@ export const leaveLeague = async (ctx: Context) => {
     cache.clearPattern(`auth_status_`);
     cache.clearPattern(`league_${id}`);
     cache.clearPattern(`matches_league_${id}`);
+    cache.clearPattern(`all_leagues`);
+    try {
+      cache.del(`user_leagues_${ctx.state.user.userId}`);
+    } catch { }
     try {
       invalidateServerCache('/leagues');
       invalidateServerCache('/matches');

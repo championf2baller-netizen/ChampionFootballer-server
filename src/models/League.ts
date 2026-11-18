@@ -10,6 +10,7 @@ interface LeagueAttributes {
   maxGames?: number;
   active: boolean;
   archived: boolean;
+  deleted?: boolean;
   showPoints: boolean;
   image?: string; // Added image field
   lastActiveSeasonId?: string;
@@ -25,6 +26,7 @@ class League extends Model<LeagueAttributes> {
   declare maxGames?: number;
   declare active: boolean;
   declare archived: boolean;
+  declare deleted: boolean;
   declare showPoints: boolean;
   declare image?: string; // Added image field
   declare lastActiveSeasonId?: string;
@@ -90,6 +92,10 @@ League.init(
       defaultValue: true,
     },
     archived: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+    deleted: {
       type: DataTypes.BOOLEAN,
       defaultValue: false,
     },
