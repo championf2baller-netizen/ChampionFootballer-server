@@ -2279,7 +2279,7 @@ export const getMatchById = async (ctx: Context) => {
 
     const match = await Match.findByPk(matchId, {
       include: [
-        { model: League, as: 'league', attributes: ['id', 'name'] },
+        { model: League, as: 'league', attributes: ['id', 'name', 'deleted'] },
         { model: User, as: 'homeTeamUsers', attributes: ['id', 'firstName', 'lastName', 'profilePicture', 'shirtNumber', 'position'] },
         { model: User, as: 'awayTeamUsers', attributes: ['id', 'firstName', 'lastName', 'profilePicture', 'shirtNumber', 'position'] },
         { model: MatchGuest, as: 'guestPlayers', attributes: ['id', 'firstName', 'lastName', 'shirtNumber', 'team'] }
@@ -2288,7 +2288,7 @@ export const getMatchById = async (ctx: Context) => {
 
     console.log('🔍 Match query result:', match ? 'Found' : 'Not found');
 
-    if (!match) {
+    if (!match || (match as any).deleted || ((match as any).league && (match as any).league.deleted)) {
       console.log('❌ Match not found in database');
       ctx.status = 404;
       ctx.body = { success: false, message: 'Match not found' };
@@ -2455,8 +2455,8 @@ export const getAllMatches = async (ctx: Context) => {
     const me = await User.findByPk(userId, {
       attributes: ['id'],
       include: [
-        { model: League, as: 'leagues', attributes: ['id'], through: { attributes: [] } },
-        { model: League, as: 'administeredLeagues', attributes: ['id'], through: { attributes: [] } }
+        { model: League, as: 'leagues', attributes: ['id', 'deleted'], where: { deleted: false }, required: false, through: { attributes: [] } },
+        { model: League, as: 'administeredLeagues', attributes: ['id', 'deleted'], where: { deleted: false }, required: false, through: { attributes: [] } }
       ]
     });
 
@@ -2498,7 +2498,7 @@ export const getAllMatches = async (ctx: Context) => {
     const matches = await Match.findAll({
       where,
       include: [
-        { model: League, as: 'league', attributes: ['id', 'name'] }
+        { model: League, as: 'league', attributes: ['id', 'name', 'deleted'], where: { deleted: false }, required: true }
       ],
       order: [['date', 'DESC']],
       limit,

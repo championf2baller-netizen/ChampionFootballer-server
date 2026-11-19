@@ -1554,7 +1554,7 @@ export const getLeagueMatches = async (ctx: Context) => {
 
   try {
     const league = await League.findByPk(id, {
-      attributes: ['id', 'name', 'active', 'archived'],
+      attributes: ['id', 'name', 'active', 'archived', 'deleted'],
       include: [
         { model: User, as: 'members', attributes: ['id'] },
         { model: User, as: 'administeredLeagues', attributes: ['id'] },
@@ -1576,7 +1576,7 @@ export const getLeagueMatches = async (ctx: Context) => {
       ]
     });
 
-    if (!league) {
+    if (!league || (league as any).deleted) {
       ctx.status = 404;
       ctx.body = { success: false, message: 'League not found' };
       return;
@@ -2557,10 +2557,10 @@ export const getLeagueById = async (ctx: Context) => {
 
   try {
     const league = await League.findByPk(id, {
-      attributes: ['id', 'name', 'inviteCode', 'active', 'archived', 'image', 'maxGames', 'showPoints', 'createdAt', 'updatedAt']
+      attributes: ['id', 'name', 'inviteCode', 'active', 'archived', 'deleted', 'image', 'maxGames', 'showPoints', 'createdAt', 'updatedAt']
     });
 
-    if (!league) {
+    if (!league || (league as any).deleted) {
       ctx.status = 404;
       ctx.body = { success: false, message: 'League not found' };
       return;
@@ -2955,6 +2955,7 @@ export const getLeagueStatistics = async (ctx: Context) => {
   try {
     // Find the league
     const league = await League.findByPk(id, {
+      attributes: ['id', 'name', 'deleted'],
       include: [
         { model: User, as: 'members', attributes: ['id'] },
         { model: User, as: 'administeredLeagues', attributes: ['id'] },
@@ -2970,7 +2971,7 @@ export const getLeagueStatistics = async (ctx: Context) => {
       ]
     });
 
-    if (!league) {
+    if (!league || (league as any).deleted) {
       ctx.status = 404;
       ctx.body = { success: false, message: 'League not found' };
       return;
@@ -3136,7 +3137,7 @@ export const getLeagueXP = async (ctx: Context) => {
 
   try {
     const [league, members, administeredLeagues] = await Promise.all([
-      League.findByPk(id, { attributes: ['id'] }),
+      League.findByPk(id, { attributes: ['id', 'deleted'] }),
       User.findAll({
         attributes: ['id'],
         include: [
@@ -3165,7 +3166,7 @@ export const getLeagueXP = async (ctx: Context) => {
       })
     ]);
 
-    if (!league) {
+    if (!league || (league as any).deleted) {
       ctx.status = 404;
       ctx.body = { success: false, message: 'League not found' };
       return;
@@ -3647,10 +3648,11 @@ export const updateLeagueStatus = async (ctx: Context) => {
 
   try {
     const league = await League.findByPk(id, {
+      attributes: ['id', 'name', 'deleted'],
       include: [{ model: User, as: 'administeredLeagues', attributes: ['id'] }]
     });
 
-    if (!league) {
+    if (!league || (league as any).deleted) {
       ctx.throw(404, 'League not found');
       return;
     }
@@ -3843,10 +3845,11 @@ export const updateLeague = async (ctx: Context) => {
 
   try {
     const league = await League.findByPk(id, {
+      attributes: ['id', 'name', 'deleted'],
       include: [{ model: User, as: 'administeredLeagues', attributes: ['id'] }]
     });
 
-    if (!league) {
+    if (!league || (league as any).deleted) {
       ctx.throw(404, 'League not found');
       return;
     }
@@ -4361,7 +4364,7 @@ export const joinLeague = async (ctx: Context) => {
       }
     }
 
-    if (!league || !targetSeason) {
+    if (!league || !targetSeason || (league as any).deleted) {
       ctx.status = 404;
       ctx.body = { success: false, message: 'No season found with this invite code. Please check and try again.' };
       return;
@@ -4370,16 +4373,17 @@ export const joinLeague = async (ctx: Context) => {
     // Ensure league includes members for membership checks.
     if (!(league as any).members) {
       league = await League.findByPk(String(league.id), {
+        attributes: ['id', 'name', 'active', 'archived', 'deleted', 'inviteCode'],
         include: [{ model: User, as: 'members', attributes: ['id'] }]
       });
     }
-    if (!league) {
+    if (!league || (league as any).deleted) {
       ctx.status = 404;
       ctx.body = { success: false, message: 'League not found' };
       return;
     }
 
-    if ((league as any).active === false || Boolean((league as any).archived)) {
+    if ((league as any).active === false || Boolean((league as any).archived) || Boolean((league as any).deleted)) {
       ctx.status = 400;
       ctx.body = { success: false, message: 'This league is currently inactive. Please contact the admin.' };
       return;
@@ -4690,10 +4694,11 @@ export const removeUserFromLeague = async (ctx: Context) => {
 
   try {
     const league = await League.findByPk(id, {
+      attributes: ['id', 'name', 'deleted'],
       include: [{ model: User, as: 'administeredLeagues', attributes: ['id'] }]
     });
 
-    if (!league) {
+    if (!league || (league as any).deleted) {
       ctx.throw(404, 'League not found');
       return;
     }
