@@ -170,6 +170,20 @@ async function ensureSeasonArchivedColumn(): Promise<void> {
   }
 }
 
+async function ensureLeagueDeletedColumn(): Promise<void> {
+  try {
+    const [results] = await sequelize.query(
+      `SELECT column_name FROM information_schema.columns WHERE table_name = 'Leagues' AND column_name = 'deleted'`
+    );
+    if (!Array.isArray(results) || results.length === 0) {
+      await sequelize.query(`ALTER TABLE "Leagues" ADD COLUMN "deleted" BOOLEAN NOT NULL DEFAULT false`);
+      console.log('✅ Added "deleted" column to Leagues table');
+    }
+  } catch (err) {
+    console.warn('⚠️ ensureLeagueDeletedColumn skipped:', (err as any).message);
+  }
+}
+
 async function ensureSeasonDeletedColumn(): Promise<void> {
   try {
     const [results] = await sequelize.query(
@@ -377,6 +391,7 @@ export async function initializeDatabase() {
     await ensureUserPhoneCountryCodeColumn();
     await ensureResetCodeColumns();
     await ensureLeagueArchivedColumn();
+    await ensureLeagueDeletedColumn();
     await ensureSeasonArchivedColumn();
     await ensureSeasonDeletedColumn();
     await ensureSeasonInviteCodeColumn();
