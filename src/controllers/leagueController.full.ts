@@ -987,12 +987,12 @@ export const getTrophyRoom = async (ctx: Context) => {
     if (leagueIdQ && leagueIdQ !== 'all') {
       // FAST PATH: fetch only the specific league directly with members (avoid loading ALL user leagues)
       const league = await League.findByPk(leagueIdQ, {
-        attributes: ['id', 'name', 'maxGames', 'active', 'archived'],
+        attributes: ['id', 'name', 'maxGames', 'active', 'archived', 'deleted'],
         include: [
           { model: User, as: 'members', attributes: ['id', 'firstName', 'lastName', 'email', 'position', 'positionType', 'xp'] }
         ]
       });
-      if (!league) {
+      if (!league || (league as any).deleted) {
         ctx.body = { success: true, trophyWinners: [], backendTotalXP: 0 };
         return;
       }
@@ -1018,7 +1018,7 @@ export const getTrophyRoom = async (ctx: Context) => {
         return;
       }
       const fetchedLeagues = await League.findAll({
-        where: { id: { [Op.in]: userLeagueIds } },
+        where: { id: { [Op.in]: userLeagueIds }, deleted: false },
         attributes: ['id', 'name', 'maxGames', 'active', 'archived'],
         include: [
           { model: User, as: 'members', attributes: ['id', 'firstName', 'lastName', 'email', 'position', 'positionType', 'xp'] }

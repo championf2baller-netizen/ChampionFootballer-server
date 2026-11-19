@@ -882,7 +882,7 @@ router.get("/auth/data", required, async (ctx: CustomContext) => {
           {
             model: League,
             as: 'leagues',
-            where: { archived: false },
+            where: { archived: false, deleted: false },
             required: false,
             attributes: ['id', 'name', 'inviteCode', 'createdAt', 'updatedAt', 'maxGames', 'showPoints', 'active', 'archived'],
             through: { attributes: [] },
@@ -905,7 +905,7 @@ router.get("/auth/data", required, async (ctx: CustomContext) => {
           {
             model: League,
             as: 'administeredLeagues',
-            where: { archived: false },
+            where: { archived: false, deleted: false },
             required: false,
             attributes: ['id', 'name', 'inviteCode', 'createdAt', 'updatedAt', 'maxGames', 'showPoints', 'active', 'archived'],
             through: { attributes: [] },
@@ -1272,7 +1272,7 @@ router.get("/auth/status", required, async (ctx: CustomContext) => {
         if (typeof (user as any).getLeagues === 'function') {
           joinedLeagues = await (user as any).getLeagues({
             attributes: leagueAttributes as unknown as string[],
-            where: { archived: false },
+            where: { archived: false, deleted: false },
             joinTableAttributes: [],
             include: [seasonInclude],
           });
@@ -1283,7 +1283,7 @@ router.get("/auth/status", required, async (ctx: CustomContext) => {
           if (typeof (user as any).getLeagues === 'function') {
             joinedLeagues = await (user as any).getLeagues({
               attributes: leagueAttributes as unknown as string[],
-              where: { archived: false },
+              where: { archived: false, deleted: false },
               joinTableAttributes: [],
             });
           }
@@ -1297,7 +1297,7 @@ router.get("/auth/status", required, async (ctx: CustomContext) => {
         if (typeof (user as any).getAdministeredLeagues === 'function') {
           administeredLeagues = await (user as any).getAdministeredLeagues({
             attributes: leagueAttributes as unknown as string[],
-            where: { archived: false },
+            where: { archived: false, deleted: false },
             joinTableAttributes: [],
             include: [seasonInclude],
           });
@@ -1308,7 +1308,7 @@ router.get("/auth/status", required, async (ctx: CustomContext) => {
           if (typeof (user as any).getAdministeredLeagues === 'function') {
             administeredLeagues = await (user as any).getAdministeredLeagues({
               attributes: leagueAttributes as unknown as string[],
-              where: { archived: false },
+              where: { archived: false, deleted: false },
               joinTableAttributes: [],
             });
           }
@@ -1466,6 +1466,7 @@ router.get("/me", required, async (ctx: CustomContext) => {
     const [leagues, administeredLeagues] = await Promise.all([
       (user as any).getLeagues({
         attributes: ['id', 'name', 'image', 'createdAt'],
+        where: { deleted: false, archived: false },
         joinTableAttributes: [],
         include: [{
           model: User,
@@ -1476,6 +1477,7 @@ router.get("/me", required, async (ctx: CustomContext) => {
       }),
       (user as any).getAdministeredLeagues({
         attributes: ['id', 'name', 'image', 'createdAt'],
+        where: { deleted: false, archived: false },
         joinTableAttributes: [],
         include: [{
           model: User,
