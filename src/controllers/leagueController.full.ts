@@ -4114,7 +4114,11 @@ export const deleteLeague = async (ctx: Context) => {
       return;
     }
 
-    const isAdmin = (league as any).administeredLeagues?.some((a: any) => String(a.id) === String(ctx.state.user.userId));
+    const user = await User.findByPk(ctx.state.user.userId);
+    const isSuperAdmin = Boolean(user?.isAdmin || user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN');
+    const isExplicitAdmin = (league as any).administeredLeagues?.some((a: any) => String(a.id) === String(ctx.state.user.userId));
+    const isFirstMember = (league as any).members?.length > 0 && String((league as any).members[0].id) === String(ctx.state.user.userId);
+    const isAdmin = isSuperAdmin || isExplicitAdmin || isFirstMember;
     if (!isAdmin) {
       ctx.throw(403, 'Only league admins can delete');
       return;
