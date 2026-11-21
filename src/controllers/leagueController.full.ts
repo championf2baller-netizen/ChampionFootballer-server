@@ -5184,14 +5184,10 @@ export const updateMatchInLeague = async (ctx: Context) => {
       return;
     }
 
-    const teamUploadRequested =
-      homeTeamUsers !== undefined ||
-      awayTeamUsers !== undefined ||
-      homeGuests !== undefined ||
-      awayGuests !== undefined;
+    const uniqueRegisteredPlayers = new Set<string>([...homeIds, ...awayIds]).size;
+    const totalPlayers = uniqueRegisteredPlayers + homeGuestsData.length + awayGuestsData.length;
+    const teamUploadRequested = totalPlayers > 0;
     if (teamUploadRequested) {
-      const uniqueRegisteredPlayers = new Set<string>([...homeIds, ...awayIds]).size;
-      const totalPlayers = uniqueRegisteredPlayers + homeGuestsData.length + awayGuestsData.length;
       const validationMessage = validateTeamUploadThresholds(uniqueRegisteredPlayers, totalPlayers);
       if (validationMessage) {
         ctx.status = 400;
@@ -5297,17 +5293,19 @@ export const updateMatchInLeague = async (ctx: Context) => {
       }
     }
 
-    // Delete existing guests for this match
-    await MatchGuest.destroy({ where: { matchId } });
+    if (teamUploadRequested) {
+      // Delete existing guests for this match
+      await MatchGuest.destroy({ where: { matchId } });
 
-    // Create new guests
-    const allGuests = [
-      ...homeGuestsData.map((g: any) => ({ ...g, matchId, team: 'home' })),
-      ...awayGuestsData.map((g: any) => ({ ...g, matchId, team: 'away' }))
-    ];
+      // Create new guests
+      const allGuests = [
+        ...homeGuestsData.map((g: any) => ({ ...g, matchId, team: 'home' })),
+        ...awayGuestsData.map((g: any) => ({ ...g, matchId, team: 'away' }))
+      ];
 
-    if (allGuests.length > 0) {
-      await MatchGuest.bulkCreate(allGuests);
+      if (allGuests.length > 0) {
+        await MatchGuest.bulkCreate(allGuests);
+      }
     }
 
     if (teamUploadRequested) {
