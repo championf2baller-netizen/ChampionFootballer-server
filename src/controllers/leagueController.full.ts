@@ -2672,6 +2672,12 @@ export const getLeagueById = async (ctx: Context) => {
       const seasonRanksData = await getLeaguePlayerRanks(id, effectiveSeasonId || null);
       seasonRankChanges = seasonRanksData.rankChanges || {};
 
+      const completedCount = effectiveSeasonId ? (seasonMatchCountMap[String(effectiveSeasonId)] || 0) : 0;
+      if (effectiveSeasonId && completedCount <= 1) {
+        // First match of the season has no prior match to compare against; movement starts from match 2 onwards
+        seasonRankChanges = {};
+      }
+
       if (effectiveSeasonId) {
         const overallRanksData = await getLeaguePlayerRanks(id, null);
         leagueRankChanges = overallRanksData.rankChanges || {};

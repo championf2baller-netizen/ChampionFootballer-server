@@ -292,20 +292,20 @@ export async function calculateAndSaveLeaguePlayerRanks(
       const uid = String(m.id);
       const curr = currentRanksMap.get(uid) ?? members.length;
       let prev: number | null = null;
+      let change = 0;
 
-      if (priorRanksMap && priorRanksMap.has(uid)) {
+      // In the first match of the season (matches.length <= 1), there is no prior match
+      // in this season to compare against. Movement only starts counting from the 2nd match onwards.
+      if (matches.length <= 1) {
+        prev = curr;
+        change = 0;
+      } else if (priorRanksMap && priorRanksMap.has(uid)) {
         prev = priorRanksMap.get(uid)!;
+        change = prev - curr;
       } else {
-        const existing = existingMap.get(uid);
-        if (existing && typeof existing.previousRank === 'number') {
-          prev = existing.previousRank;
-        } else {
-          prev = curr;
-        }
+        prev = curr;
+        change = 0;
       }
-
-      // rankChange: positive if moved up (e.g. from 3 to 1 => +2), negative if moved down (e.g. from 1 to 2 => -1)
-      const change = prev != null ? (prev - curr) : 0;
 
       rankChanges[uid] = change;
       currentRanks[uid] = curr;
@@ -364,6 +364,30 @@ export async function getLeaguePlayerRanks(
   if (!leagueId) return { rankChanges: {}, currentRanks: {}, previousRanks: {} };
 
   try {
+    // Check completed match count for this season/league.
+    // Rank movement only starts counting from the 2nd match onwards.
+    let matchCountQuery = `
+      SELECT COUNT(*)::int as count
+      FROM "Matches"
+      WHERE "leagueId" = $1
+        AND (deleted IS NULL OR deleted = false)
+        AND (archived IS NULL OR archived = false)
+        AND status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED')
+        AND "homeTeamGoals" IS NOT NULL
+        AND "awayTeamGoals" IS NOT NULL
+    `;
+    const countBinds: any[] = [leagueId];
+    if (seasonId) {
+      matchCountQuery += ` AND "seasonId" = $2`;
+      countBinds.push(seasonId);
+    }
+    const countResult = await sequelize.query<{ count: number }>(matchCountQuery, {
+      bind: countBinds,
+      type: QueryTypes.SELECT
+    });
+    const matchCount = Number(countResult?.[0]?.count ?? 0);
+    const isFirstMatchOrFewer = matchCount <= 1;
+
     const rows = await sequelize.query<{
       userId: string;
       currentRank: number;
@@ -383,9 +407,9 @@ export async function getLeaguePlayerRanks(
 
       rows.forEach(r => {
         const uid = String(r.userId);
-        rankChanges[uid] = Number(r.rankChange) || 0;
+        rankChanges[uid] = isFirstMatchOrFewer ? 0 : (Number(r.rankChange) || 0);
         currentRanks[uid] = Number(r.currentRank);
-        previousRanks[uid] = r.previousRank != null ? Number(r.previousRank) : null;
+        previousRanks[uid] = isFirstMatchOrFewer ? Number(r.currentRank) : (r.previousRank != null ? Number(r.previousRank) : null);
       });
 
       return { rankChanges, currentRanks, previousRanks };
