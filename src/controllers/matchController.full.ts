@@ -721,7 +721,7 @@ async function getPlayerTeamForMatch(userId: string, matchId: string): Promise<'
       const t = String(layout[0].team).toLowerCase();
       if (t === 'home' || t === 'away') return t as 'home' | 'away';
     }
-  } catch {}
+  } catch { }
 
   const user = await User.findByPk(uid, { attributes: ['id', 'provider', 'providerId'] } as any);
   const provider = String((user as any)?.provider || '');
@@ -741,7 +741,7 @@ async function getPlayerTeamForMatch(userId: string, matchId: string): Promise<'
       attributes: ['id', 'team']
     });
     if (directGuest) return normalizeTeam((directGuest as any).team);
-  } catch {}
+  } catch { }
 
   return null;
 }
@@ -789,7 +789,7 @@ export async function recalculateMatchXPForCurrentState(matchId: string, ensureU
       { bind: [matchId], type: QueryTypes.SELECT }
     );
     layoutUsers.forEach((u) => participantIds.add(String(u.userId)));
-  } catch {}
+  } catch { }
 
   // Include any existing stats rows
   try {
@@ -798,7 +798,7 @@ export async function recalculateMatchXPForCurrentState(matchId: string, ensureU
       { bind: [matchId], type: QueryTypes.SELECT }
     );
     existingStats.forEach((u) => participantIds.add(String(u.user_id)));
-  } catch {}
+  } catch { }
 
   // Also include guest mirror users so captain picks and base XP can apply consistently.
   const matchGuests = await MatchGuest.findAll({ where: { matchId }, attributes: ['id'] as any });
@@ -859,8 +859,8 @@ export async function recalculateMatchXPForCurrentState(matchId: string, ensureU
   const isFinalized =
     FINALIZED_MATCH_STATUSES.has(String(match.status || '')) ||
     (match.homeTeamGoals !== null && match.homeTeamGoals !== undefined &&
-     match.awayTeamGoals !== null && match.awayTeamGoals !== undefined &&
-     String(match.status || '').toUpperCase() !== 'SCHEDULED');
+      match.awayTeamGoals !== null && match.awayTeamGoals !== undefined &&
+      String(match.status || '').toUpperCase() !== 'SCHEDULED');
 
   if (!isFinalized) {
     return;
@@ -926,7 +926,7 @@ export async function recalculateMatchXPForCurrentState(matchId: string, ensureU
       try {
         const resolvedVid = await resolveTargetUserIdForMatch(vid, matchId);
         if (resolvedVid) defenceVotedSet.add(resolvedVid);
-      } catch {}
+      } catch { }
     }
   }
 
@@ -938,7 +938,7 @@ export async function recalculateMatchXPForCurrentState(matchId: string, ensureU
     try {
       const resolved = await resolveTargetUserIdForMatch(raw, matchId);
       if (resolved) targetSet.add(resolved);
-    } catch {}
+    } catch { }
   };
 
   if (defenceVotedSet.size === 0) {
@@ -959,7 +959,7 @@ export async function recalculateMatchXPForCurrentState(matchId: string, ensureU
       try {
         const resolvedVid = await resolveTargetUserIdForMatch(vid, matchId);
         if (resolvedVid) influenceVotedSet.add(resolvedVid);
-      } catch {}
+      } catch { }
     }
   }
 
@@ -1070,7 +1070,7 @@ export async function recalculateMatchXPForCurrentState(matchId: string, ensureU
         cache.del(`user_achievements_${uid}`);
         cache.del(`user_global_stats_${uid}`);
         cache.clearPattern(`player_trophies_${uid}`);
-      } catch {}
+      } catch { }
     }
     cache.del(`match_${matchId}`);
     if (match.leagueId) {
@@ -1088,8 +1088,8 @@ export async function recalculateMatchXPForCurrentState(matchId: string, ensureU
 
 // Vote for MOTM
 export const voteForMotm = async (ctx: Context) => {
-  const voterId = ctx.state.user?.userId || ctx.state.user?.id;
-  if (!voterId) {
+  const currentVoterId = ctx.state.user?.userId || ctx.state.user?.id;
+  if (!currentVoterId) {
     ctx.throw(401, 'Unauthorized');
     return;
   }
@@ -1113,12 +1113,12 @@ export const voteForMotm = async (ctx: Context) => {
     (typeof votedForId === 'string' && votedForId.trim() === '');
 
   // Get old vote to calculate XP delta for previous voted player
-  const oldVote = await Vote.findOne({ where: { matchId, voterId, category: { [Op.or]: ['motm', null] } } });
+  const oldVote = await Vote.findOne({ where: { matchId, voterId: currentVoterId, category: { [Op.or]: ['motm', null] } } });
   const oldVotedForId = oldVote?.votedForId ? String(oldVote.votedForId) : null;
 
   if (isRemoving) {
     // Removing vote
-    await Vote.destroy({ where: { matchId, voterId, category: { [Op.or]: ['motm', null] } } });
+    await Vote.destroy({ where: { matchId, voterId: currentVoterId, category: { [Op.or]: ['motm', null] } } });
     try {
       await recalculateMatchXPForCurrentState(matchId, [oldVotedForId].filter(Boolean) as string[]);
     } catch (recalcErr) {
@@ -1143,8 +1143,8 @@ export const voteForMotm = async (ctx: Context) => {
       console.error('Could not sync match.manOfTheMatchVotes on removal:', syncErr);
     }
 
-    try { 
-      cache.clearPattern(`match_votes_${matchId}_`); 
+    try {
+      cache.clearPattern(`match_votes_${matchId}_`);
       cache.clearPattern(`match_${matchId}`);
       cache.clearPattern('match_');
       cache.clearPattern('matches_');
@@ -1174,20 +1174,20 @@ export const voteForMotm = async (ctx: Context) => {
     ctx.throw(400, 'Selected player is not part of this match.');
     return;
   }
-  if (String(voterId) === String(targetUserId)) {
+  if (String(currentVoterId) === String(targetUserId)) {
     ctx.throw(400, 'You cannot vote for yourself.');
     return;
   }
 
   // Update or create vote
-  await Vote.destroy({ where: { matchId, voterId, category: { [Op.or]: ['motm', null] } } });
+  await Vote.destroy({ where: { matchId, voterId: currentVoterId, category: { [Op.or]: ['motm', null] } } });
   if (!targetUserId) {
     ctx.throw(400, 'Selected player is invalid for this match.');
     return;
   }
 
-  await Vote.create({ matchId, voterId, votedForId: targetUserId, category: 'motm' });
-  console.log(`🗳️ MOTM Vote created - voterId: ${voterId}, votedForId: ${targetUserId}, matchId: ${matchId}`);
+  await Vote.create({ matchId, voterId: currentVoterId, votedForId: targetUserId, category: 'motm' });
+  console.log(`🗳️ MOTM Vote created - voterId: ${currentVoterId}, votedForId: ${targetUserId}, matchId: ${matchId}`);
 
   // Recalculate canonical XP for match, updating match_statistics.xp_awarded and users.xp for both old and new voted players
   try {
@@ -2832,8 +2832,8 @@ export const updateMatch = async (ctx: Context) => {
       includesScoreUpdate ||
       FINALIZED_MATCH_STATUSES.has(String(match.status || '')) ||
       (match.homeTeamGoals !== null && match.homeTeamGoals !== undefined &&
-       match.awayTeamGoals !== null && match.awayTeamGoals !== undefined &&
-       String(match.status || '').toUpperCase() !== 'SCHEDULED');
+        match.awayTeamGoals !== null && match.awayTeamGoals !== undefined &&
+        String(match.status || '').toUpperCase() !== 'SCHEDULED');
 
     if (isCompletedMatch) {
       try {
