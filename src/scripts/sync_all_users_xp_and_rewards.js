@@ -286,7 +286,7 @@ async function main() {
           const values = [];
           const rowsSql = batch.map((r, idx) => {
             const p = idx * 6;
-            values.push(r.id, r.user_id, r.match_id, 15, 90, r.xp_awarded);
+            values.push(r.id, r.user_id, r.match_id, 0, 90, r.xp_awarded);
             return `($${p+1}, $${p+2}, $${p+3}, 0, 0, 0, 0, $${p+4}, 0, 0, 0, 0, $${p+5}, 6.0, $${p+6}, NOW(), NOW())`;
           });
 

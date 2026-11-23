@@ -1897,8 +1897,7 @@ If you believe the score is incorrect, please contact the League Admin.`;
         defensiveContribution +
         mentalityContribution;
 
-      // Participation floor if no contribution action is recorded
-      const computedImpact = clampPercentage(rawContribution > 0 ? rawContribution : 15);
+      const computedImpact = clampPercentage(rawContribution);
 
       const [statRecord, created] = await MatchStatistics.findOrCreate({
         where: { match_id: matchId, user_id: userId },

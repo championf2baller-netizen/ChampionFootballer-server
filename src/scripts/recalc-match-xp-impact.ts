@@ -81,7 +81,7 @@ function computeContributionImpactPercent(params: {
     defensiveContribution +
     mentalityContribution;
 
-  return clampPercentage(rawContribution > 0 ? rawContribution : 15);
+  return clampPercentage(rawContribution);
 }
 
 function computeMatchXp(params: {

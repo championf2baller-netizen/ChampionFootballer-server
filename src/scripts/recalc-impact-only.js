@@ -44,7 +44,7 @@ async function main() {
       const mentContrib = isMentality ? 5 : 0;
 
       const raw = gContrib + aContrib + csContrib + defContrib + mentContrib;
-      const newImpact = clampPercentage(raw > 0 ? raw : 15);
+      const newImpact = clampPercentage(raw);
       const oldImpact = Number(r.old_impact || 0);
 
       if (newImpact !== oldImpact) {
