@@ -1088,12 +1088,12 @@ export async function recalculateMatchXPForCurrentState(matchId: string, ensureU
 
 // Vote for MOTM
 export const voteForMotm = async (ctx: Context) => {
-  if (!ctx.state.user?.userId) {
+  const voterId = ctx.state.user?.userId || ctx.state.user?.id;
+  if (!voterId) {
     ctx.throw(401, 'Unauthorized');
     return;
   }
   const matchId = ctx.params.id;
-  const voterId = ctx.state.user.userId;
   const { votedForId } = ctx.request.body as { votedForId?: string | null };
 
   // Check if the league is locked (completed for more than 24 hours)
@@ -1106,32 +1106,17 @@ export const voteForMotm = async (ctx: Context) => {
     }
   }
 
-  // Resolve incoming selected target (supports regular users + guests).
-  let targetUserId: string | null = null;
-  if (votedForId) {
-    try {
-      targetUserId = await resolveTargetUserIdForMatch(String(votedForId), matchId);
-    } catch {
-      ctx.throw(400, 'Selected player is invalid for this match.');
-      return;
-    }
-
-    const targetTeam = await getPlayerTeamForMatch(targetUserId, matchId);
-    if (!targetTeam) {
-      ctx.throw(400, 'Selected player is not part of this match.');
-      return;
-    }
-    if (String(voterId) === String(targetUserId)) {
-      ctx.throw(400, 'You cannot vote for yourself.');
-      return;
-    }
-  }
+  const isRemoving = !votedForId ||
+    votedForId === 'none' ||
+    votedForId === 'clear' ||
+    votedForId === 'null' ||
+    (typeof votedForId === 'string' && votedForId.trim() === '');
 
   // Get old vote to calculate XP delta for previous voted player
   const oldVote = await Vote.findOne({ where: { matchId, voterId, category: { [Op.or]: ['motm', null] } } });
   const oldVotedForId = oldVote?.votedForId ? String(oldVote.votedForId) : null;
 
-  if (!votedForId) {
+  if (isRemoving) {
     // Removing vote
     await Vote.destroy({ where: { matchId, voterId, category: { [Op.or]: ['motm', null] } } });
     try {
@@ -1139,9 +1124,58 @@ export const voteForMotm = async (ctx: Context) => {
     } catch (recalcErr) {
       console.error('Could not recalculate match XP after vote removal:', recalcErr);
     }
-    try { cache.clearPattern(`match_votes_${matchId}_`); } catch { }
+
+    // Sync match.manOfTheMatchVotes in Matches table
+    try {
+      const remainingVotes = await Vote.findAll({
+        where: { matchId, category: { [Op.or]: ['motm', null] } },
+        attributes: ['voterId', 'votedForId'],
+        raw: true
+      });
+      const motmMap: Record<string, string> = {};
+      remainingVotes.forEach((v: any) => {
+        if (v.voterId && v.votedForId) {
+          motmMap[String(v.voterId)] = String(v.votedForId);
+        }
+      });
+      await Match.update({ manOfTheMatchVotes: motmMap }, { where: { id: matchId } });
+    } catch (syncErr) {
+      console.error('Could not sync match.manOfTheMatchVotes on removal:', syncErr);
+    }
+
+    try { 
+      cache.clearPattern(`match_votes_${matchId}_`); 
+      cache.clearPattern(`match_${matchId}`);
+      cache.clearPattern('match_');
+      cache.clearPattern('matches_');
+      cache.clearPattern('user_');
+      cache.clearPattern('leaderboard');
+      if (match?.leagueId) {
+        cache.clearPattern(`league_${match.leagueId}`);
+      }
+      cache.clearPattern('league_');
+    } catch { }
     ctx.status = 200;
     ctx.body = { success: true, message: 'Vote removed.' };
+    return;
+  }
+
+  // Resolve incoming selected target (supports regular users + guests).
+  let targetUserId: string | null = null;
+  try {
+    targetUserId = await resolveTargetUserIdForMatch(String(votedForId), matchId);
+  } catch {
+    ctx.throw(400, 'Selected player is invalid for this match.');
+    return;
+  }
+
+  const targetTeam = await getPlayerTeamForMatch(targetUserId, matchId);
+  if (!targetTeam) {
+    ctx.throw(400, 'Selected player is not part of this match.');
+    return;
+  }
+  if (String(voterId) === String(targetUserId)) {
+    ctx.throw(400, 'You cannot vote for yourself.');
     return;
   }
 
@@ -1162,34 +1196,42 @@ export const voteForMotm = async (ctx: Context) => {
     console.error('Could not recalculate match XP after vote submit/change:', recalcErr);
   }
 
-
+  // Sync match.manOfTheMatchVotes in Matches table
   try {
-    const match = await Match.findByPk(matchId);
-    if (match && match.leagueId) {
-      const votedUser = await User.findByPk(String(targetUserId), { attributes: ['id', 'provider'] } as any);
-      if (String((votedUser as any)?.provider || '') !== 'guest') {
-        const cacheKey = `leaderboard_motm_${match.leagueId}_all`;
-        cache.updateLeaderboard(cacheKey, { playerId: targetUserId, value: 1 });
+    const allVotes = await Vote.findAll({
+      where: { matchId, category: { [Op.or]: ['motm', null] } },
+      attributes: ['voterId', 'votedForId'],
+      raw: true
+    });
+    const motmMap: Record<string, string> = {};
+    allVotes.forEach((v: any) => {
+      if (v.voterId && v.votedForId) {
+        motmMap[String(v.voterId)] = String(v.votedForId);
       }
-    }
-  } catch (e) {
-    console.warn('MOTM leaderboard cache update failed', e);
+    });
+    await Match.update({ manOfTheMatchVotes: motmMap }, { where: { id: matchId } });
+  } catch (syncErr) {
+    console.error('Could not sync match.manOfTheMatchVotes on create/update:', syncErr);
   }
 
   // Disabled by product request:
   // do not generate notifications that reveal who a user selected as MOTM.
 
-
   try {
     cache.clearPattern(`match_votes_${matchId}_`);
     cache.clearPattern(`match_${matchId}`);
+    cache.clearPattern('match_');
     cache.clearPattern('user_');
     cache.clearPattern('leaderboard');
+    if (match?.leagueId) {
+      cache.clearPattern(`league_${match.leagueId}`);
+    }
     cache.clearPattern('league_');
     cache.clearPattern('matches_');
     cache.clearPattern('achievements:');
   } catch { }
 
+  ctx.status = 200;
   ctx.body = { success: true, message: 'Vote recorded successfully' };
 };
 

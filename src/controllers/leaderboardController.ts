@@ -70,8 +70,11 @@ export const getLeaderboard = async (ctx: Context) => {
 
   try {
     // MOTM: aggregate from Vote model
-    if (metric === 'motm' && leagueId) {
-      const matchWhere: any = { leagueId };
+    if (metric === 'motm') {
+      const matchWhere: any = {
+        status: { [Op.in]: FINALIZED_MATCH_STATUSES }
+      };
+      if (leagueId) matchWhere.leagueId = leagueId;
       if (seasonId) matchWhere.seasonId = seasonId;
       
       const voteInclude: any[] = [
@@ -84,9 +87,12 @@ export const getLeaderboard = async (ctx: Context) => {
       ];
 
       const votesGrouped = await models.Vote.findAll({
+        where: {
+          category: { [Op.or]: ['motm', null] }
+        },
         attributes: [
           'votedForId',
-          [fn('COUNT', col('Vote.votedForId')), 'count']
+          [fn('COUNT', literal('DISTINCT CONCAT("Vote"."matchId", \'-\', "Vote"."voterId")')), 'count']
         ],
         include: voteInclude,
         group: ['Vote.votedForId'],
@@ -99,7 +105,8 @@ export const getLeaderboard = async (ctx: Context) => {
       const users = await models.User.findAll({
         where: {
           id: playerIds,
-          ...NON_GUEST_PROVIDER_WHERE
+          ...NON_GUEST_PROVIDER_WHERE,
+          ...(positionType && { positionType })
         },
         attributes: ['id', 'firstName', 'lastName', 'profilePicture', 'position', 'positionType']
       });
@@ -109,6 +116,7 @@ export const getLeaderboard = async (ctx: Context) => {
         .map((v: any) => {
           const user = userMap.get(v.votedForId);
           if (!user) return null;
+          if (positionType && user.positionType !== positionType) return null;
           return {
             id: v.votedForId,
             name: `${user.firstName} ${user.lastName}`,
@@ -131,11 +139,11 @@ export const getLeaderboard = async (ctx: Context) => {
     // Must match Career page logic:
     // average of MatchStatistics.impact across finalized matches,
     // then clamp to 0-100 and round to integer for leaderboard display.
-    if (metric === 'contribution' && leagueId) {
+    if (metric === 'contribution') {
       const matchWhere: any = {
-        leagueId,
         status: { [Op.in]: FINALIZED_MATCH_STATUSES }
       };
+      if (leagueId) matchWhere.leagueId = leagueId;
       if (seasonId) matchWhere.seasonId = seasonId;
 
       const statsGrouped = await models.MatchStatistics.findAll({
@@ -208,15 +216,15 @@ export const getLeaderboard = async (ctx: Context) => {
     }
 
     // DEFENSIVE HERO VOTES: Count captain picks from Match table (homeDefensiveImpactId & awayDefensiveImpactId)
-    if (metric === 'impact' && leagueId) {
+    if (metric === 'impact') {
       const matchWhere: any = { 
-        leagueId, 
         status: { [Op.in]: FINALIZED_MATCH_STATUSES },
         [Op.or]: [
           { homeDefensiveImpactId: { [Op.ne]: null } },
           { awayDefensiveImpactId: { [Op.ne]: null } }
         ]
       };
+      if (leagueId) matchWhere.leagueId = leagueId;
       if (seasonId) matchWhere.seasonId = seasonId;
 
       // Get all matches with defensive impact picks
@@ -246,7 +254,8 @@ export const getLeaderboard = async (ctx: Context) => {
       const users = await models.User.findAll({
         where: {
           id: playerIds,
-          ...NON_GUEST_PROVIDER_WHERE
+          ...NON_GUEST_PROVIDER_WHERE,
+          ...(positionType && { positionType })
         },
         attributes: ['id', 'firstName', 'lastName', 'profilePicture', 'position', 'positionType']
       });
@@ -256,6 +265,7 @@ export const getLeaderboard = async (ctx: Context) => {
         .map(([playerId, count]) => {
           const user = userMap.get(playerId);
           if (!user) return null;
+          if (positionType && user.positionType !== positionType) return null;
           return {
             id: playerId,
             name: `${user.firstName} ${user.lastName}`,

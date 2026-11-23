@@ -603,8 +603,11 @@ const fetchMatchesWithLightRelations = async (matchWhere: any): Promise<any[]> =
       raw: true,
     }),
     Vote.findAll({
-      where: { matchId: { [Op.in]: matchIds } },
-      attributes: ['matchId', 'voterId', 'votedForId'],
+      where: {
+        matchId: { [Op.in]: matchIds },
+        category: { [Op.or]: ['motm', null] }
+      },
+      attributes: ['matchId', 'voterId', 'votedForId', 'category'],
       raw: true,
     }),
     MatchStatistics.findAll({
@@ -1141,7 +1144,10 @@ export const getTrophyRoom = async (ctx: Context) => {
           raw: true,
         }),
         Vote.findAll({
-          where: { matchId: { [Op.in]: allMatchIds } },
+          where: {
+            matchId: { [Op.in]: allMatchIds },
+            category: { [Op.or]: ['motm', null] }
+          },
           attributes: ['matchId', 'voterId', 'votedForId'],
           raw: true,
         }),
@@ -1641,7 +1647,13 @@ export const getLeagueMatches = async (ctx: Context) => {
         { model: User, as: 'awayTeamUsers', attributes: ['id', 'firstName', 'lastName', 'profilePicture', 'shirtNumber'] },
         { model: User, as: 'availableUsers', attributes: ['id', 'firstName', 'lastName', 'profilePicture', 'shirtNumber'], through: { attributes: [] } },
         { model: MatchGuest, as: 'guestPlayers', attributes: ['id', 'firstName', 'lastName', 'team'] },
-        { model: Vote, as: 'votes', attributes: ['voterId', 'votedForId'] }
+        {
+          model: Vote,
+          as: 'votes',
+          where: { category: { [Op.or]: ['motm', null] } },
+          required: false,
+          attributes: ['voterId', 'votedForId', 'category']
+        }
       ],
       order: [['date', 'ASC'], ['createdAt', 'ASC']]
     });
@@ -1747,7 +1759,9 @@ export const getLeagueMatches = async (ctx: Context) => {
           const manOfTheMatchVotes: Record<string, string> = {};
           if (Array.isArray(matchJson.votes)) {
             matchJson.votes.forEach((vote: any) => {
-              manOfTheMatchVotes[vote.voterId] = vote.votedForId;
+              if (!vote.category || vote.category === 'motm') {
+                manOfTheMatchVotes[vote.voterId] = vote.votedForId;
+              }
             });
           }
           delete matchJson.votes;
@@ -2854,7 +2868,9 @@ export const getLeagueById = async (ctx: Context) => {
           const manOfTheMatchVotes: Record<string, string> = {};
           if (matchJson.votes && Array.isArray(matchJson.votes)) {
             matchJson.votes.forEach((vote: any) => {
-              manOfTheMatchVotes[vote.voterId] = vote.votedForId;
+              if (!vote.category || vote.category === 'motm') {
+                manOfTheMatchVotes[vote.voterId] = vote.votedForId;
+              }
             });
           }
           delete matchJson.votes;
@@ -3373,6 +3389,7 @@ export const getPlayerQuickView = async (ctx: Context) => {
     });
 
     let motmCount = 0;
+    let totalMotmVotes = 0;
     for (const match of matches) {
       const matchRecord = match as any;
       const votes = matchRecord.votes || [];
@@ -3402,6 +3419,8 @@ export const getPlayerQuickView = async (ctx: Context) => {
           }
         }
       }
+
+      totalMotmVotes += (voteCounts[String(playerId)] || 0);
 
       let maxVotes = 0;
       let winners = new Set<string>();
@@ -3507,6 +3526,7 @@ export const getPlayerQuickView = async (ctx: Context) => {
     ctx.body = {
       success: true,
       motmCount: motmCount || 0,
+      motmVotes: totalMotmVotes || 0,
       lastFive,
       player: player ? {
         id: player.id,

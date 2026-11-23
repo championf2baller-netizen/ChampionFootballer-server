@@ -212,7 +212,7 @@ export const getPlayerStats = async (ctx: Context) => {
 
     const votes = matchIds.length
       ? await Vote.findAll({
-        where: { matchId: { [Op.in]: matchIds }, votedForId: id },
+        where: { matchId: { [Op.in]: matchIds }, votedForId: id, category: { [Op.or]: ['motm', null] } },
         attributes: ['matchId'],
         raw: true
       })
@@ -553,8 +553,8 @@ export const getPlayerProfile = async (ctx: Context) => {
 
     const voteRows = visibleMatchIds.length
       ? await Vote.findAll({
-        where: { matchId: { [Op.in]: visibleMatchIds } },
-        attributes: ['voterId', 'votedForId', 'matchId'],
+        where: { matchId: { [Op.in]: visibleMatchIds }, category: { [Op.or]: ['motm', null] } },
+        attributes: ['voterId', 'votedForId', 'matchId', 'category'],
         raw: true,
       })
       : [];
@@ -867,7 +867,7 @@ export const getCareerDashboard = async (ctx: Context) => {
     // Fetch MOTM votes
     const votes = matchIds.length
       ? await Vote.findAll({
-        where: { matchId: { [Op.in]: matchIds }, votedForId: id },
+        where: { matchId: { [Op.in]: matchIds }, votedForId: id, category: { [Op.or]: ['motm', null] } },
         attributes: ['matchId'],
         raw: true
       })

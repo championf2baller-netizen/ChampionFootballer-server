@@ -45,6 +45,7 @@ export interface MatchAttributes {
   homeMentalityId?: string | null;
   awayDefensiveImpactId?: string | null;
   awayMentalityId?: string | null;
+  manOfTheMatchVotes?: Record<string, string> | null;
 }
 
 interface MatchCreationAttributes extends Optional<MatchAttributes, 'id' | 'archived' | 'deleted' | 'removed'> {} // <-- added 'removed'
@@ -90,6 +91,7 @@ class Match extends Model<MatchAttributes, MatchCreationAttributes> implements M
   public homeMentalityId?: string | null;
   public awayDefensiveImpactId?: string | null;
   public awayMentalityId?: string | null;
+  public manOfTheMatchVotes?: Record<string, string> | null;
 
   // Static associate function
   public static associate(models: any) {
@@ -301,6 +303,11 @@ Match.init(
     homeMentalityId: { type: DataTypes.UUID, allowNull: true },
     awayDefensiveImpactId: { type: DataTypes.UUID, allowNull: true },
     awayMentalityId: { type: DataTypes.UUID, allowNull: true },
+    manOfTheMatchVotes: {
+      type: DataTypes.JSONB,
+      allowNull: true,
+      defaultValue: {}
+    },
   },
   {
     sequelize,
