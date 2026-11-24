@@ -2654,13 +2654,30 @@ export const getMatchStats = async (ctx: Context) => {
     }
 
     // Otherwise, get all stats for the match
-    const stats = await MatchStatistics.findAll({
-      where: { match_id: matchId },
-      include: [{ model: User, as: 'user', attributes: ['id', 'firstName', 'lastName', 'profilePicture', 'provider', 'providerId'] }]
-    });
+    const [stats, motmVotes] = await Promise.all([
+      MatchStatistics.findAll({
+        where: { match_id: matchId },
+        include: [{ model: User, as: 'user', attributes: ['id', 'firstName', 'lastName', 'profilePicture', 'provider', 'providerId'] }]
+      }),
+      Vote.findAll({
+        where: { matchId, category: { [Op.or]: ['motm', null] } },
+        attributes: ['voterId'],
+        raw: true
+      })
+    ]);
+
+    const voterIds = Array.from(
+      new Set(
+        (motmVotes as Array<{ voterId?: string | number }>)
+          .map((v) => String(v?.voterId || '').trim())
+          .filter(Boolean)
+      )
+    );
+    const voterIdSet = new Set(voterIds);
 
     ctx.body = {
       success: true,
+      voterIds,
       stats: stats.map(s => {
         const statUser = (s as any).user as any;
         const isGuestMirror =
@@ -2679,7 +2696,8 @@ export const getMatchStats = async (ctx: Context) => {
           Number(s.freeKicks || 0) > 0 ||
           Number(s.yellowCards || 0) > 0 ||
           Number(s.redCards || 0) > 0 ||
-          (Number(s.impact || 0) > 0 && Number(s.minutesPlayed || 0) === 0 && Number(s.rating || 0) === 0)
+          (Number(s.impact || 0) > 0 && Number(s.minutesPlayed || 0) === 0 && Number(s.rating || 0) === 0) ||
+          voterIdSet.has(String(s.user_id))
         );
 
         return {
