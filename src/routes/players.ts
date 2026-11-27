@@ -1559,12 +1559,23 @@ router.get('/:playerId/simple-synergy', async (ctx) => {
   }
 
   try {
-    // 1. Get all match ids where this player has a stats row
-    const playerStatRows = await MatchStatistics.findAll({
-      where: { user_id: playerId },
-      attributes: ['match_id']
-    });
-    const allMatchIds = playerStatRows.map(r => r.match_id);
+    // 1. Get all match ids where this player participated (MatchStatistics or home/away lineups)
+    const HomeModel = (sequelize.models as any)?.UserHomeMatches;
+    const AwayModel = (sequelize.models as any)?.UserAwayMatches;
+    const [playerStatRows, homeMembershipRows, awayMembershipRows] = await Promise.all([
+      MatchStatistics.findAll({
+        where: { user_id: playerId },
+        attributes: ['match_id'],
+        raw: true,
+      }),
+      HomeModel ? HomeModel.findAll({ where: { userId: playerId }, attributes: ['matchId'], raw: true }) : Promise.resolve([]),
+      AwayModel ? AwayModel.findAll({ where: { userId: playerId }, attributes: ['matchId'], raw: true }) : Promise.resolve([]),
+    ]);
+    const allMatchIds = Array.from(new Set([
+      ...(playerStatRows as any[]).map((r) => String(r.match_id || '')),
+      ...(homeMembershipRows as any[]).map((r) => String(r.matchId || '')),
+      ...(awayMembershipRows as any[]).map((r) => String(r.matchId || '')),
+    ].filter(Boolean)));
     if (allMatchIds.length === 0) {
       const emptyPayload = leagueId
         ? {
@@ -1585,14 +1596,19 @@ router.get('/:playerId/simple-synergy', async (ctx) => {
       return;
     }
 
-    // 2. Fetch matches (filtered by league if requested)
-    const matchWhere: any = { id: { [Op.in]: allMatchIds } };
-    if (leagueId) matchWhere.leagueId = leagueId;
+    // 2. Fetch completed non-deleted matches (and exclude archived leagues when viewing all leagues)
+    const matchWhere: any = {
+      id: { [Op.in]: allMatchIds },
+      status: { [Op.in]: ['RESULT_PUBLISHED', 'RESULT_UPLOADED', 'REVISION_REQUESTED'] },
+      deleted: { [Op.ne]: true },
+    };
+    if (leagueId && leagueId !== 'all') matchWhere.leagueId = leagueId;
     if (selectedSeasonId) matchWhere.seasonId = selectedSeasonId;
 
     let matches = await MatchModel.findAll({
       where: matchWhere,
       include: [
+        { model: LeagueModel, as: 'league', where: { archived: false }, attributes: ['id', 'name'], required: true },
         { model: models.User, as: 'homeTeamUsers', attributes: ['id', 'firstName', 'lastName'] },
         { model: models.User, as: 'awayTeamUsers', attributes: ['id', 'firstName', 'lastName'] }
       ],

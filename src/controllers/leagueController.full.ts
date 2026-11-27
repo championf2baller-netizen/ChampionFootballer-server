@@ -5816,9 +5816,18 @@ export const getLeaguePlayerAverages = async (ctx: Context) => {
     const activePlayersCount = activePlayerIds.length > 0 ? activePlayerIds.length : totalPlayers;
 
     const metricKeysForAvg = ['goals', 'assists', 'cleanSheets', 'defence', 'motmVotes', 'defensiveImpactVotes', 'impact'] as const;
+    const avgPoolIds = activePlayerIds.length > 0 ? activePlayerIds : playerIds;
     const perMatchAverages: Record<string, number> = {};
     for (const key of metricKeysForAvg) {
-      const playerAvgs = (activePlayerIds.length > 0 ? activePlayerIds : playerIds).map(uid => {
+      if (key === 'impact') {
+        // Match-weight Game Contribution Index so players with very few matches do not inflate the league average
+        const totalImpact = avgPoolIds.reduce((sum, uid) => sum + (Number(playerMap[uid]?.impact) || 0), 0);
+        const totalMatchesForImpact = avgPoolIds.reduce((sum, uid) => sum + Math.max(Number(playerMap[uid]?.matches) || 0, 0), 0);
+        const weightedImpact = totalMatchesForImpact > 0 ? Math.max(0, Math.min(100, totalImpact / totalMatchesForImpact)) : 0;
+        perMatchAverages[key] = +weightedImpact.toFixed(1);
+        continue;
+      }
+      const playerAvgs = avgPoolIds.map(uid => {
         const p = playerMap[uid];
         const mc = Math.max(p.matches, 1);
         return p[key] / mc;

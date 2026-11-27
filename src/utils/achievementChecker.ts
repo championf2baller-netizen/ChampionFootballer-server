@@ -509,3 +509,173 @@ export const computeAchievementState = (
 
   return { badges, xpAchievementInstances, countsById };
 };
+
+export const computeAchievementXpByMatch = (
+  userId: string,
+  matches: AchievementMatchInput[],
+  statsByMatch: Map<string, AchievementStatLine>,
+  options?: ComputeAchievementOptions
+): Map<string, number> => {
+  const normalizedUserId = normalizeId(userId);
+  const bySeason: Record<string, Array<{ matchId: string; summary: MatchSummary }>> = {};
+  const providedSeasonTotals = options?.totalMatchesBySeason;
+  const providedLeagueTotals = options?.totalMatchesByLeague;
+  const totalMatchesBySeason: Record<string, number> = providedSeasonTotals ? { ...providedSeasonTotals } : {};
+  const xpByMatchId = new Map<string, number>();
+
+  const addMatchXp = (matchId: string, amount: number) => {
+    if (!matchId || !amount) return;
+    xpByMatchId.set(matchId, (xpByMatchId.get(matchId) || 0) + amount);
+  };
+
+  const sortedMatches = [...matches]
+    .filter((m) => normalizeId(m.id) !== '')
+    .sort((a, b) => a.time - b.time);
+
+  for (const match of sortedMatches) {
+    const matchId = normalizeId(match.id);
+    const leagueId = normalizeId(match.leagueId);
+    const seasonId = normalizeId(match.seasonId);
+    const seasonKey = getSeasonScopeKey(leagueId, seasonId);
+
+    if (!providedSeasonTotals || totalMatchesBySeason[seasonKey] === undefined) {
+      totalMatchesBySeason[seasonKey] = (totalMatchesBySeason[seasonKey] || 0) + 1;
+    }
+
+    const statLine = statsByMatch.get(matchId) || { goals: 0, assists: 0 };
+    const hasRecordedStats = statsByMatch.has(matchId);
+    let isHome = match.homeTeamUserIds.some((id) => sameComparableId(id, normalizedUserId));
+    let isAway = match.awayTeamUserIds.some((id) => sameComparableId(id, normalizedUserId));
+    if (!isHome && !isAway) {
+      if (!hasRecordedStats) continue;
+      isHome = true;
+    }
+    const oppGoals = isHome ? Number(match.awayTeamGoals || 0) : Number(match.homeTeamGoals || 0);
+    const teamGoals = isHome ? Number(match.homeTeamGoals || 0) : Number(match.awayTeamGoals || 0);
+    const result: Result = teamGoals > oppGoals ? 'W' : teamGoals === oppGoals ? 'D' : 'L';
+    const isCaptainWin =
+      result === 'W' &&
+      (sameComparableId(match.homeCaptainId, normalizedUserId) || sameComparableId(match.awayCaptainId, normalizedUserId));
+    const hasXFactorPick =
+      (match.defenceVotedUserIds || []).some((id) => sameComparableId(id, normalizedUserId)) ||
+      (match.influenceVotedUserIds || []).some((id) => sameComparableId(id, normalizedUserId)) ||
+      sameComparableId(match.homeDefensiveImpactId, normalizedUserId) ||
+      sameComparableId(match.awayDefensiveImpactId, normalizedUserId) ||
+      sameComparableId(match.homeMentalityId, normalizedUserId) ||
+      sameComparableId(match.awayMentalityId, normalizedUserId);
+    const motmWinnerId = getTopMotmWinner(match.votePlayerIds);
+    const wonMotmAward = sameComparableId(motmWinnerId, normalizedUserId);
+
+    if (!bySeason[seasonKey]) bySeason[seasonKey] = [];
+    bySeason[seasonKey].push({
+      matchId,
+      summary: {
+        goals: Number(statLine.goals || 0),
+        assists: Number(statLine.assists || 0),
+        conceded: oppGoals,
+        result,
+        isCaptainWin,
+        hasXFactorPick,
+        xFactorPicks: hasXFactorPick ? 1 : 0,
+        wonMotmAward,
+        cleanSheetTeam: oppGoals === 0,
+      },
+    });
+  }
+
+  for (const [seasonKey, entries] of Object.entries(bySeason)) {
+    let goalStreak = 0;
+    let assistStreak = 0;
+    let winStreak = 0;
+    let captainWinCount = 0;
+    let xFactorCount = 0;
+    let motmCount = 0;
+    let cleanSheetCount = 0;
+    let hatTrickWindow: Array<{ matchIndex: number; hatTricks: number }> = [];
+
+    for (let i = 0; i < entries.length; i++) {
+      const { matchId, summary: m } = entries[i];
+
+      if (m.goals > 0) {
+        goalStreak += 1;
+        if (goalStreak === 5) {
+          addMatchXp(matchId, XP_BY_ID.scoring_10_consecutive || 0);
+          goalStreak = 0;
+        }
+      } else {
+        goalStreak = 0;
+      }
+
+      if (m.assists > 0) {
+        assistStreak += 1;
+        if (assistStreak === 5) {
+          addMatchXp(matchId, XP_BY_ID.assist_10_consecutive || 0);
+          assistStreak = 0;
+        }
+      } else {
+        assistStreak = 0;
+      }
+
+      const h = Math.floor((m.goals || 0) / 3);
+      hatTrickWindow = hatTrickWindow.filter((entry) => entry.matchIndex >= i - 2 && entry.hatTricks > 0);
+      if (h > 0) hatTrickWindow.push({ matchIndex: i, hatTricks: h });
+      const windowSum = hatTrickWindow.reduce((sum, entry) => sum + entry.hatTricks, 0);
+      if (windowSum >= 3) {
+        const newAwards = Math.floor(windowSum / 3);
+        addMatchXp(matchId, newAwards * (XP_BY_ID.hat_trick_3_matches || 0));
+        let toConsume = newAwards * 3;
+        for (const entry of hatTrickWindow) {
+          if (toConsume <= 0) break;
+          const take = Math.min(entry.hatTricks, toConsume);
+          entry.hatTricks -= take;
+          toConsume -= take;
+        }
+        hatTrickWindow = hatTrickWindow.filter((entry) => entry.hatTricks > 0);
+      }
+
+      if (m.isCaptainWin) {
+        captainWinCount += 1;
+        if (captainWinCount % 3 === 0) addMatchXp(matchId, XP_BY_ID.captain_5_wins || 0);
+      }
+
+      if (m.hasXFactorPick) {
+        xFactorCount += 1;
+        if (xFactorCount % 5 === 0) addMatchXp(matchId, XP_BY_ID.captain_performance_3 || 0);
+      }
+
+      if (m.wonMotmAward) {
+        motmCount += 1;
+        if (motmCount % 3 === 0) addMatchXp(matchId, XP_BY_ID.motm_4_consecutive || 0);
+      }
+
+      if (m.cleanSheetTeam) {
+        cleanSheetCount += 1;
+        if (cleanSheetCount % 3 === 0) addMatchXp(matchId, XP_BY_ID.clean_sheet_5_wins || 0);
+      }
+
+      if (m.result === 'W') {
+        winStreak += 1;
+        if (winStreak === 10) {
+          addMatchXp(matchId, XP_BY_ID.consecutive_10_victories || 0);
+          winStreak = 0;
+        }
+      } else {
+        winStreak = 0;
+      }
+    }
+
+    const rawSeasonId = seasonKey.includes(':') ? seasonKey.split(':')[1] : seasonKey;
+    const rawLeagueId = seasonKey.includes(':') ? seasonKey.split(':')[0] : '';
+    const totalMatchesInSeason =
+      totalMatchesBySeason[seasonKey] ??
+      (rawSeasonId && totalMatchesBySeason[rawSeasonId] !== undefined ? totalMatchesBySeason[rawSeasonId] : undefined) ??
+      (rawLeagueId && providedLeagueTotals && providedLeagueTotals[rawLeagueId] !== undefined ? providedLeagueTotals[rawLeagueId] : 0) ??
+      0;
+
+    if (totalMatchesInSeason >= 10 && entries.length > 0 && entries.length / totalMatchesInSeason >= 0.9) {
+      addMatchXp(entries[entries.length - 1].matchId, XP_BY_ID.top_spot_10_matches || 0);
+    }
+  }
+
+  return xpByMatchId;
+};

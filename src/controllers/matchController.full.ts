@@ -1080,6 +1080,8 @@ export async function recalculateMatchXPForCurrentState(matchId: string, ensureU
     cache.clearPattern('leaderboard_');
     cache.clearPattern('trophy_room_');
     cache.clearPattern('achievements:');
+    cache.clearPattern('career_dashboard_');
+    cache.clearPattern('player_profile_');
   } catch (err) {
     await tx.rollback();
     throw err;
@@ -1437,6 +1439,8 @@ export const updateMatchGoals = async (ctx: Context) => {
       cache.clearPattern('leaderboard_');
       cache.clearPattern('trophy_room_');
       cache.clearPattern('achievements:');
+      cache.clearPattern('career_dashboard_');
+      cache.clearPattern('player_profile_');
       invalidateMemoryCache('/leaderboard');
       invalidateMemoryCache('/leagues');
       invalidateMemoryCache('/matches');
@@ -2038,8 +2042,10 @@ If you believe the score is incorrect, please contact the League Admin.`;
             const topVotedForId = top?.votedForId ? String(top.votedForId) : '';
             if (topVotedForId && topVotedForId === String(userId)) {
               const motmWinnerXP = teamResult === 'win' ? xpPointsTable.motm.win : xpPointsTable.motm.lose;
-              newXpToAward += motmWinnerXP;
-              breakdown.push(`MOTM Winner: +${motmWinnerXP}`);
+              if (motmWinnerXP > 0) {
+                newXpToAward += motmWinnerXP;
+                breakdown.push(`MOTM Winner: +${motmWinnerXP}`);
+              }
             }
           }
         } catch (motmErr) {
@@ -2224,6 +2230,8 @@ If you believe the score is incorrect, please contact the League Admin.`;
       cache.clearPattern('leaderboard_');
       cache.clearPattern('trophy_room_');
       cache.clearPattern('achievements:');
+      cache.clearPattern('career_dashboard_');
+      cache.clearPattern('player_profile_');
       invalidateMemoryCache('/leaderboard');
       invalidateMemoryCache('/users/me/achievements');
       invalidateMemoryCache('/users/me/global-stats');
@@ -3219,6 +3227,8 @@ export const submitCaptainPicks = async (ctx: Context) => {
       cache.clearPattern('league_');
       cache.clearPattern('matches_');
       cache.clearPattern('achievements:');
+      cache.clearPattern('career_dashboard_');
+      cache.clearPattern('player_profile_');
     } catch (cacheErr) {
       console.error('Failed to invalidate cache after captain pick:', cacheErr);
     }

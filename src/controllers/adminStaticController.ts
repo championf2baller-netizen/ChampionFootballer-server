@@ -174,15 +174,14 @@ MANAGEMENT CONTROLS:
     category: 'general',
     title: 'Game Rules & League Point Scoring',
     content: JSON.stringify([
-      { action: 'Winning Team Bonus', desc: 'Winning a match', winning: '30 xp', losing: '', isLosingEmpty: true, points: '3 Points' },
+      { action: 'Winning Team Bonus', desc: 'Winning a match', winning: '20 xp', losing: '', isLosingEmpty: true, points: '3 Points' },
       { action: 'Draw', desc: 'Drawing a match', winning: '15 xp', losing: '15 xp', isMerged: true, points: '1 Point' },
       { action: 'Losing Team Consolation', desc: 'Losing a match', winning: '', isWinningEmpty: true, losing: '10 xp', points: '0 Points' },
-      { action: 'Man of the Match (MOTM)', desc: 'Player with the most count of Man of the Match votes in a single Match', winning: '10 xp', losing: '5 xp', points: '0 Points' },
-      { action: 'Clean Sheets', desc: 'Player keeping a clean sheet during their total episodes in goal', winning: '5 xp', losing: '5 xp', isMerged: true, points: '0 Points' },
-      { action: 'Goal Scored', desc: 'Total number of goals scored by a player', winning: '3 xp', losing: '2 xp', points: '0 Points' },
-      { action: 'Assist', desc: 'Total number of goal assists made by a player', winning: '2 xp', losing: '1 xp', points: '0 Points' },
-      { action: 'Man of the Match Votes', desc: 'Player receiving individual count of votes per match', winning: '2 xp', losing: '1 xp', points: '0 Points' },
-      { action: 'Defensive Impact', desc: 'Decisive defensive or goalkeeping performance in the match', winning: '2 xp', losing: '1 xp', points: '0 Points' },
+      { action: 'Clean Sheets', desc: 'Player keeping a clean sheet during their total episodes in goal', winning: '3 xp', losing: '3 xp', points: '0 Points' },
+      { action: 'Goal Scored', desc: 'Total number of goals scored by a player', winning: '2 xp', losing: '2 xp', points: '0 Points' },
+      { action: 'Assist', desc: 'Total number of goal assists made by a player', winning: '2 xp', losing: '2 xp', points: '0 Points' },
+      { action: 'Man of the Match Votes', desc: 'Player receiving individual count of votes per match', winning: '2 xp', losing: '2 xp', points: '0 Points' },
+      { action: 'Defensive Impact', desc: 'Decisive defensive or goalkeeping performance in the match', winning: '2 xp', losing: '2 xp', points: '0 Points' },
       { action: '+ Mentality', desc: 'Recognise positive mentality and sportsmanship in the match.', winning: '2 xp', losing: '2 xp', points: '0 Points' }
     ], null, 2),
     metadata: {}
@@ -1834,6 +1833,29 @@ export const ensureDefaultsExist = async () => {
             if (existing.category !== item.category) {
               existing.category = item.category;
               updated = true;
+            }
+            if (item.key === 'game_rules' && typeof existing.content === 'string') {
+              const hasLegacyDefaultRules =
+                existing.content.includes('"Winning Team Bonus"') &&
+                existing.content.includes('"30 xp"') &&
+                existing.content.includes('"10 xp"');
+              if (hasLegacyDefaultRules) {
+                existing.content = item.content;
+                updated = true;
+              } else if (existing.content.includes('"Man of the Match (MOTM)"')) {
+                try {
+                  const parsedRules = JSON.parse(existing.content);
+                  if (Array.isArray(parsedRules)) {
+                    const filtered = parsedRules.filter((r: { action?: string }) => r?.action !== 'Man of the Match (MOTM)');
+                    if (filtered.length !== parsedRules.length) {
+                      existing.content = JSON.stringify(filtered, null, 2);
+                      updated = true;
+                    }
+                  }
+                } catch {
+                  // Ignore malformed custom content
+                }
+              }
             }
             // Preserve admin edits: do NOT overwrite existing.title or existing.content if row already exists in DB
             if (updated) {

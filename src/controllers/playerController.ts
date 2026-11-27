@@ -4,8 +4,27 @@ import { Op, QueryTypes } from 'sequelize';
 import cache from '../utils/cache';
 import sequelize from '../config/database';
 import { registeredUserWhere } from '../utils/playerIdentity';
+import { computeAchievementXpByMatch, toAchievementMatchInput } from '../utils/achievementChecker';
 
 const { User: UserModel, Match: MatchModel, MatchStatistics, League: LeagueModel, Vote } = models;
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const isUuid = (value?: string | null): boolean => UUID_REGEX.test(String(value || '').trim());
+const VALID_CAREER_MATCH_STATUSES = ['RESULT_PUBLISHED', 'RESULT_UPLOADED', 'REVISION_REQUESTED'];
+
+const parseCareerYearValue = (value?: string | null): number | null => {
+  const trimmed = String(value || '').trim();
+  if (!trimmed || trimmed === 'all') return null;
+  const parsed = Number.parseInt(trimmed, 10);
+  if (!Number.isFinite(parsed) || Number.isNaN(parsed) || parsed < 1900 || parsed > 3000) return null;
+  return parsed;
+};
+
+const parseYearFromSeasonToken = (seasonValue?: string | null): number | null => {
+  const trimmed = String(seasonValue || '').trim();
+  const match = trimmed.match(/^year-(\d{4})$/i);
+  return match ? parseCareerYearValue(match[1]) : null;
+};
 
 export const getAllPlayers = async (ctx: Context) => {
   const cacheKey = 'players_all_registered_v2_ultra_fast';
@@ -445,13 +464,22 @@ export const getPlayerProfile = async (ctx: Context) => {
     // 1. Get player basic info
     const player = await UserModel.findByPk(id, {
       attributes: ['id', 'firstName', 'lastName', 'profilePicture', 'xp', 'position', 'positionType', 'shirtNumber', 'email'],
-      include: [{
-        model: LeagueModel,
-        as: 'leagues',
-        where: { archived: false },
-        required: false,
-        attributes: ['id', 'name', 'image', 'createdAt', 'updatedAt', 'active', 'archived']
-      }]
+      include: [
+        {
+          model: LeagueModel,
+          as: 'leagues',
+          where: { archived: false },
+          required: false,
+          attributes: ['id', 'name', 'image', 'createdAt', 'updatedAt', 'active', 'archived']
+        },
+        {
+          model: LeagueModel,
+          as: 'administeredLeagues',
+          where: { archived: false },
+          required: false,
+          attributes: ['id', 'name', 'image', 'createdAt', 'updatedAt', 'active', 'archived']
+        }
+      ]
     });
 
     if (!player) {
@@ -462,7 +490,7 @@ export const getPlayerProfile = async (ctx: Context) => {
     // 2. Get player stats and related match data in small queries.
     const statRows = await MatchStatistics.findAll({
       where: { user_id: id },
-      attributes: ['id', 'goals', 'assists', 'cleanSheets', 'penalties', 'freeKicks', 'defence', 'impact', 'rating', 'xpAwarded', 'match_id'],
+      attributes: ['id', 'goals', 'assists', 'cleanSheets', 'penalties', 'freeKicks', 'defence', 'impact', 'rating', 'xpAwarded', 'type', 'match_id'],
       raw: true,
     });
 
@@ -521,6 +549,7 @@ export const getPlayerProfile = async (ctx: Context) => {
           'awayMentalityId',
           'homeTeamGoals',
           'awayTeamGoals',
+          'status',
         ],
         raw: true,
       })
@@ -541,6 +570,13 @@ export const getPlayerProfile = async (ctx: Context) => {
       matchRows = matchRows.filter((match) => new Date(match.date).getFullYear() === selectedYear);
     }
 
+    const allMatchIdsForAchievements = allMatches.map((match) => String(match.id));
+    const allStatsByMatchId = new Map<string, any>();
+    (statRows as any[]).forEach((stat) => {
+      const matchId = String(stat.match_id || '').trim();
+      if (matchId) allStatsByMatchId.set(matchId, stat);
+    });
+
     const visibleMatchIds = matchRows.map((match) => String(match.id));
     const visibleMatchIdSet = new Set(visibleMatchIds);
     const statsByMatchId = new Map<string, any>();
@@ -551,31 +587,110 @@ export const getPlayerProfile = async (ctx: Context) => {
       }
     });
 
-    const voteRows = visibleMatchIds.length
-      ? await Vote.findAll({
-        where: { matchId: { [Op.in]: visibleMatchIds }, category: { [Op.or]: ['motm', null] } },
-        attributes: ['voterId', 'votedForId', 'matchId', 'category'],
-        raw: true,
-      })
-      : [];
+    const allLeagueIdsForAch = Array.from(
+      new Set(allMatches.map((m) => String(m.leagueId || '').trim().toLowerCase()).filter(Boolean))
+    );
+
+    const [allVoteRows, leagueSeasonTotalRows] = await Promise.all([
+      allMatchIdsForAchievements.length
+        ? Vote.findAll({
+            where: { matchId: { [Op.in]: allMatchIdsForAchievements } },
+            attributes: ['voterId', 'votedForId', 'matchId', 'category'],
+            raw: true,
+          })
+        : Promise.resolve([]),
+      allLeagueIdsForAch.length
+        ? MatchModel.findAll({
+            where: {
+              leagueId: { [Op.in]: allLeagueIdsForAch as any },
+              status: { [Op.in]: ['RESULT_PUBLISHED', 'RESULT_UPLOADED'] },
+            },
+            attributes: ['leagueId', 'seasonId', [sequelize.fn('COUNT', sequelize.col('id')), 'totalMatches']],
+            group: ['leagueId', 'seasonId'],
+            raw: true,
+          })
+        : Promise.resolve([]),
+    ]);
 
     const votesByMatchId = new Map<string, any[]>();
-    (voteRows as any[]).forEach((vote) => {
+    const allVotesByMatchIdForAch = new Map<string, any[]>();
+    (allVoteRows as any[]).forEach((vote) => {
       const matchId = String(vote.matchId);
-      if (!votesByMatchId.has(matchId)) votesByMatchId.set(matchId, []);
-      votesByMatchId.get(matchId)!.push(vote);
+      if (!allVotesByMatchIdForAch.has(matchId)) allVotesByMatchIdForAch.set(matchId, []);
+      allVotesByMatchIdForAch.get(matchId)!.push(vote);
+      const cat = String(vote.category || '').trim().toLowerCase();
+      if (!cat || cat === 'motm') {
+        if (!votesByMatchId.has(matchId)) votesByMatchId.set(matchId, []);
+        votesByMatchId.get(matchId)!.push(vote);
+      }
     });
+
+    const allTeamByMatchId = new Map<string, 'home' | 'away'>();
+    allMatches.forEach((matchObj) => {
+      const mId = String(matchObj.id);
+      const statObj = allStatsByMatchId.get(mId);
+      if (userHomeMatchIds.has(mId) || String(matchObj?.homeCaptainId || '') === String(id)) {
+        allTeamByMatchId.set(mId, 'home');
+      } else if (userAwayMatchIds.has(mId) || String(matchObj?.awayCaptainId || '') === String(id)) {
+        allTeamByMatchId.set(mId, 'away');
+      } else if (statObj?.type === 'away') {
+        allTeamByMatchId.set(mId, 'away');
+      } else {
+        allTeamByMatchId.set(mId, 'home');
+      }
+    });
+
+    const totalMatchesByLeagueForAch: Record<string, number> = {};
+    const totalMatchesBySeasonForAch: Record<string, number> = {};
+    for (const row of leagueSeasonTotalRows as any[]) {
+      const lKey = String(row.leagueId || '').trim().toLowerCase();
+      const sKey = String(row.seasonId || '').trim().toLowerCase();
+      const count = Number(row.totalMatches || 0);
+      if (lKey) totalMatchesByLeagueForAch[lKey] = (totalMatchesByLeagueForAch[lKey] || 0) + count;
+      if (lKey && sKey) {
+        totalMatchesBySeasonForAch[`${lKey}:${sKey}`] = count;
+        totalMatchesBySeasonForAch[sKey] = count;
+      } else if (sKey) {
+        totalMatchesBySeasonForAch[sKey] = count;
+      } else if (lKey) {
+        totalMatchesBySeasonForAch[`${lKey}:default`] = count;
+      }
+    }
+
+    const achStatsMap = new Map<string, { goals: number; assists: number }>();
+    allStatsByMatchId.forEach((st, mId) => {
+      achStatsMap.set(mId.trim().toLowerCase(), {
+        goals: Number(st.goals || 0),
+        assists: Number(st.assists || 0),
+      });
+    });
+
+    const achievementMatchInputs = allMatches
+      .filter((m) => ['RESULT_PUBLISHED', 'RESULT_UPLOADED'].includes(String(m.status || '')))
+      .map((m) => {
+        const mId = String(m.id);
+        const side = allTeamByMatchId.get(mId);
+        return toAchievementMatchInput({
+          ...m,
+          homeTeamUsers: side === 'home' ? [String(id)] : [],
+          awayTeamUsers: side === 'away' ? [String(id)] : [],
+          votes: allVotesByMatchIdForAch.get(mId) || [],
+        });
+      });
+
+    const achievementXpByMatch = computeAchievementXpByMatch(
+      String(id),
+      achievementMatchInputs,
+      achStatsMap,
+      {
+        totalMatchesByLeague: totalMatchesByLeagueForAch,
+        totalMatchesBySeason: totalMatchesBySeasonForAch,
+      }
+    );
 
     const teamByMatchId = new Map<string, 'home' | 'away'>();
     visibleMatchIds.forEach((mId) => {
-      const matchObj = allMatches.find(m => String(m.id) === mId);
-      if (userHomeMatchIds.has(mId) || String(matchObj?.homeCaptainId || '') === String(id)) {
-        teamByMatchId.set(mId, 'home');
-      } else if (userAwayMatchIds.has(mId) || String(matchObj?.awayCaptainId || '') === String(id)) {
-        teamByMatchId.set(mId, 'away');
-      } else {
-        teamByMatchId.set(mId, 'home');
-      }
+      teamByMatchId.set(mId, allTeamByMatchId.get(mId) || 'home');
     });
 
     const allStats = matchRows
@@ -608,10 +723,15 @@ export const getPlayerProfile = async (ctx: Context) => {
 
     // 3. Group matches by league
     const leaguesMap = new Map();
-    const playerLeagues = (player as any).leagues || [];
+    const playerLeagues = [
+      ...((player as any).leagues || []),
+      ...((player as any).administeredLeagues || []),
+    ];
 
     playerLeagues.forEach((league: any) => {
       if (Boolean(league?.archived) || String(league?.status || '').toLowerCase() === 'archived') return;
+      if (Boolean(league?.deleted)) return;
+      if (leaguesMap.has(league.id)) return;
       leaguesMap.set(league.id, {
         id: league.id,
         name: league.name,
@@ -624,17 +744,46 @@ export const getPlayerProfile = async (ctx: Context) => {
       });
     });
 
-    // Add matches with player stats to respective leagues
-    allStats.forEach((stat: any) => {
+    // Also include any non-archived, non-deleted leagues where the player actually played matches
+    // even if a LeagueMember join row is missing (e.g. historical/left membership)
+    const missingPlayedLeagueIds = Array.from(
+      new Set(
+        allStats
+          .map((s: any) => String(s?.match?.leagueId || '').trim())
+          .filter((lid: string) => lid && !leaguesMap.has(lid))
+      )
+    );
+    if (missingPlayedLeagueIds.length > 0) {
+      const extraLeagues = await LeagueModel.findAll({
+        where: {
+          id: { [Op.in]: missingPlayedLeagueIds },
+          archived: false,
+          deleted: { [Op.ne]: true },
+        } as any,
+        attributes: ['id', 'name', 'image', 'createdAt', 'updatedAt', 'active', 'archived'],
+        raw: true,
+      }) as any[];
+      extraLeagues.forEach((league: any) => {
+        if (Boolean(league?.archived) || String(league?.status || '').toLowerCase() === 'archived') return;
+        if (leaguesMap.has(league.id)) return;
+        leaguesMap.set(league.id, {
+          id: league.id,
+          name: league.name,
+          image: league.image,
+          createdAt: league.createdAt,
+          updatedAt: league.updatedAt,
+          active: league.active,
+          archived: Boolean(league.archived),
+          matches: []
+        });
+      });
+    }
+
+    // Build full timeline matches across all leagues (including archived/historical leagues)
+    // so the All Leagues cumulative XP chart reflects full match XP history.
+    const buildProfileMatchEntry = (stat: any) => {
       const match = stat.match;
-      if (!match) return;
-
-      const leagueId = match.leagueId;
-      if (!leaguesMap.has(leagueId)) {
-        // Skip if league is not in player's non-archived leagues
-        return;
-      }
-
+      if (!match) return null;
       const isHomePlayer = match.playerTeam === 'home';
       const homeGoals = Number(match.homeTeamGoals || 0);
       const awayGoals = Number(match.awayTeamGoals || 0);
@@ -642,13 +791,13 @@ export const getPlayerProfile = async (ctx: Context) => {
       const oppGoals = isHomePlayer ? awayGoals : homeGoals;
       const result: 'W' | 'D' | 'L' =
         teamGoals === oppGoals ? 'D' : (teamGoals > oppGoals ? 'W' : 'L');
-
       const matchVotes = match.votes || [];
       const motmVotesCount = matchVotes.filter((v: any) => String(v.votedForId) === String(id)).length;
 
-      leaguesMap.get(leagueId).matches.push({
+      return {
         id: match.id,
         date: match.date,
+        leagueId: match.leagueId,
         seasonId: match.seasonId,
         homeTeamName: match.homeTeamName,
         awayTeamName: match.awayTeamName,
@@ -675,12 +824,30 @@ export const getPlayerProfile = async (ctx: Context) => {
           contributionIndexPercent: `${Number(stat.impact || 0)}%`,
           rating: stat.rating || 0,
           xpAwarded: Number(stat.xpAwarded || 0),
+          achievementXp: Number(achievementXpByMatch.get(String(match.id).trim().toLowerCase()) || 0),
           result,
           teamGoals,
           opponentGoals: oppGoals,
           motmVotes: motmVotesCount
         }
-      });
+      };
+    };
+
+    const careerTimelineMatches: any[] = [];
+
+    // Add matches with player stats to respective leagues
+    allStats.forEach((stat: any) => {
+      const entry = buildProfileMatchEntry(stat);
+      if (!entry) return;
+      careerTimelineMatches.push(entry);
+
+      const leagueId = stat.match?.leagueId;
+      if (!leaguesMap.has(leagueId)) {
+        // Keep archived/unlisted leagues out of active dropdown list while preserving them in careerTimelineMatches
+        return;
+      }
+
+      leaguesMap.get(leagueId).matches.push(entry);
     });
 
     const getLeagueCreatedTimestamp = (l: any): number => {
@@ -718,6 +885,7 @@ export const getPlayerProfile = async (ctx: Context) => {
           rating: player.xp || 0
         },
         leagues: leagues,
+        careerTimelineMatches,
         years: validYears,
         allYears,
         currentStats: {},
@@ -738,6 +906,11 @@ export const getCareerDashboard = async (ctx: Context) => {
   const { id } = ctx.params;
   const { leagueId, year, seasonId } = ctx.query as { leagueId?: string; year?: string; seasonId?: string };
 
+  if (!isUuid(id)) {
+    ctx.throw(404, 'Player not found');
+    return;
+  }
+
   const cacheKey = `career_dashboard_${id}_${leagueId || 'all'}_${year || 'all'}_${seasonId || 'all'}`;
   const hasForceRefresh = Boolean(ctx.query._t || ctx.query.bust || ctx.query.refresh);
   const cached = hasForceRefresh ? null : cache.get(cacheKey);
@@ -748,7 +921,25 @@ export const getCareerDashboard = async (ctx: Context) => {
 
   try {
     const player = await UserModel.findByPk(id, {
-      attributes: ['id', 'firstName', 'lastName', 'position', 'positionType', 'profilePicture', 'shirtNumber', 'xp']
+      attributes: ['id', 'firstName', 'lastName', 'position', 'positionType', 'profilePicture', 'shirtNumber', 'xp'],
+      include: [
+        {
+          model: LeagueModel,
+          as: 'leagues',
+          where: { archived: false },
+          required: false,
+          attributes: ['id'],
+          through: { attributes: [] }
+        },
+        {
+          model: LeagueModel,
+          as: 'administeredLeagues',
+          where: { archived: false },
+          required: false,
+          attributes: ['id'],
+          through: { attributes: [] }
+        }
+      ]
     });
 
     if (!player) {
@@ -758,36 +949,61 @@ export const getCareerDashboard = async (ctx: Context) => {
 
     const playerName = `${player.firstName || ''} ${player.lastName || ''}`.trim() || 'Player';
     const playerPosition = player.position || player.positionType || '';
+    const playerLeagueIds = Array.from(new Set([
+      ...((player as any).leagues || []).map((l: any) => String(l.id || '').trim()),
+      ...((player as any).administeredLeagues || []).map((l: any) => String(l.id || '').trim()),
+    ].filter(Boolean)));
 
-    // Match filter criteria
+    const effectiveLeagueId = leagueId && leagueId !== 'all' && isUuid(leagueId) ? leagueId.trim() : '';
+    const seasonIdRaw = typeof seasonId === 'string' ? seasonId.trim() : '';
+    const rawUuidSeasonId = seasonIdRaw && seasonIdRaw !== 'all' && isUuid(seasonIdRaw) ? seasonIdRaw : '';
+    let effectiveSeasonId = rawUuidSeasonId;
+
+    if (effectiveLeagueId && effectiveSeasonId) {
+      const legacyUnseasonedMatches = await MatchModel.count({
+        where: {
+          leagueId: effectiveLeagueId,
+          seasonId: { [Op.is]: null },
+          status: { [Op.in]: VALID_CAREER_MATCH_STATUSES },
+          deleted: { [Op.ne]: true }
+        } as any
+      });
+      if (legacyUnseasonedMatches > 0) {
+        effectiveSeasonId = '';
+      }
+    }
+
+    const effectiveYear = parseCareerYearValue(year)
+      ?? (!rawUuidSeasonId ? parseYearFromSeasonToken(seasonIdRaw) : null);
+
+    // Match filter criteria (matches pre-migration non-archived scope & valid statuses)
     const matchWhere: Record<string, unknown> = {
-      status: { [Op.in]: ['RESULT_PUBLISHED', 'RESULT_UPLOADED'] },
+      status: { [Op.in]: VALID_CAREER_MATCH_STATUSES },
       deleted: { [Op.ne]: true }
     };
-    if (leagueId && leagueId !== 'all') {
-      matchWhere.leagueId = leagueId;
+    if (effectiveLeagueId) {
+      matchWhere.leagueId = effectiveLeagueId;
+    } else if (playerLeagueIds.length > 0) {
+      matchWhere.leagueId = { [Op.in]: playerLeagueIds };
     }
-    if (seasonId && seasonId !== 'all') {
-      matchWhere.seasonId = seasonId;
+    if (effectiveSeasonId) {
+      matchWhere.seasonId = effectiveSeasonId;
     }
     let yearStart: Date | null = null;
     let yearEnd: Date | null = null;
-    if (year && year !== 'all') {
-      const y = Number(year);
-      if (!Number.isNaN(y)) {
-        yearStart = new Date(Date.UTC(y, 0, 1));
-        yearEnd = new Date(Date.UTC(y + 1, 0, 1));
-        matchWhere.date = {
-          [Op.gte]: yearStart,
-          [Op.lt]: yearEnd
-        };
-      }
+    if (effectiveYear !== null) {
+      yearStart = new Date(Date.UTC(effectiveYear, 0, 1));
+      yearEnd = new Date(Date.UTC(effectiveYear + 1, 0, 1));
+      matchWhere.date = {
+        [Op.gte]: yearStart,
+        [Op.lt]: yearEnd
+      };
     }
 
     // Fetch match IDs where user participated via MatchStatistics AND join tables
     const userStatsRows = await MatchStatistics.findAll({
       where: { user_id: id },
-      attributes: ['match_id', 'goals', 'assists', 'cleanSheets', 'defence', 'impact', 'xpAwarded'],
+      attributes: ['match_id', 'goals', 'assists', 'cleanSheets', 'defence', 'impact', 'xpAwarded', 'type'],
       raw: true
     });
 
@@ -856,6 +1072,7 @@ export const getCareerDashboard = async (ctx: Context) => {
         'awayDefensiveImpactId'
       ],
       include: [
+        { model: LeagueModel, as: 'league', where: { archived: false }, attributes: [], required: true },
         { model: UserModel, as: 'homeTeamUsers', attributes: ['id'] },
         { model: UserModel, as: 'awayTeamUsers', attributes: ['id'] }
       ],
@@ -864,19 +1081,45 @@ export const getCareerDashboard = async (ctx: Context) => {
 
     const matchIds = matches.map((m: any) => String(m.id));
 
-    // Fetch MOTM votes
-    const votes = matchIds.length
-      ? await Vote.findAll({
-        where: { matchId: { [Op.in]: matchIds }, votedForId: id, category: { [Op.or]: ['motm', null] } },
-        attributes: ['matchId'],
-        raw: true
-      })
-      : [];
+    // Fetch MOTM votes + Defensive Impact captain/player votes (with legacy Match fallback)
+    const [votes, defenceVotes] = matchIds.length
+      ? await Promise.all([
+          Vote.findAll({
+            where: { matchId: { [Op.in]: matchIds }, votedForId: id, category: { [Op.or]: ['motm', null] } },
+            attributes: ['matchId'],
+            raw: true
+          }),
+          Vote.findAll({
+            where: { matchId: { [Op.in]: matchIds }, category: { [Op.in]: ['defence', 'defensive'] } },
+            attributes: ['matchId', 'voterId', 'votedForId'],
+            raw: true
+          })
+        ])
+      : [[], []];
 
     const votesByMatch: Record<string, number> = {};
     (votes as any[]).forEach((v) => {
       const mid = String(v.matchId);
       votesByMatch[mid] = (votesByMatch[mid] || 0) + 1;
+    });
+
+    const matchesWithDefVotes = new Set<string>();
+    const seenDefVoterPerMatch = new Set<string>();
+    const defVotesForPlayerByMatch: Record<string, number> = {};
+    (defenceVotes as any[]).forEach((v) => {
+      const mid = String(v.matchId || '').trim();
+      const voterId = String(v.voterId || '').trim();
+      const votedForId = String(v.votedForId || '').trim();
+      if (!mid || !votedForId) return;
+      matchesWithDefVotes.add(mid);
+      if (voterId) {
+        const voterKey = `${mid}:${voterId}`;
+        if (seenDefVoterPerMatch.has(voterKey)) return;
+        seenDefVoterPerMatch.add(voterKey);
+      }
+      if (votedForId === String(id)) {
+        defVotesForPlayerByMatch[mid] = (defVotesForPlayerByMatch[mid] || 0) + 1;
+      }
     });
 
     // Process played matches
@@ -917,7 +1160,11 @@ export const getCareerDashboard = async (ctx: Context) => {
       let isAway = awayMatchIdSet.has(matchId) || awayUserIds.includes(String(id)) || String(match.awayCaptainId || '') === String(id);
 
       if (!isHome && !isAway) {
-        isHome = true;
+        if (statRow?.type === 'away') {
+          isAway = true;
+        } else {
+          isHome = true;
+        }
       } else if (isHome && isAway) {
         if (homeMatchIdSet.has(matchId)) isAway = false;
         else if (awayMatchIdSet.has(matchId)) isHome = false;
@@ -963,9 +1210,13 @@ export const getCareerDashboard = async (ctx: Context) => {
         if (result === 'W') captainWinsCount += 1;
       }
 
-      const isHomeDef = String(match.homeDefensiveImpactId || '') === String(id);
-      const isAwayDef = String(match.awayDefensiveImpactId || '') === String(id);
-      if (isHomeDef || isAwayDef) defensiveImpactVotes += 1;
+      if (matchesWithDefVotes.has(matchId)) {
+        defensiveImpactVotes += Number(defVotesForPlayerByMatch[matchId] || 0);
+      } else {
+        const isHomeDef = String(match.homeDefensiveImpactId || '') === String(id);
+        const isAwayDef = String(match.awayDefensiveImpactId || '') === String(id);
+        if (isHomeDef || isAwayDef) defensiveImpactVotes += 1;
+      }
 
       playedMatchesList.push({ match, stat: statRow, result, teamGoals, oppGoals, motmVotes: matchMotm });
     });
@@ -1089,69 +1340,99 @@ export const getCareerDashboard = async (ctx: Context) => {
     let leagueAvgExpectedAssists = 0.4;
     let leagueAvgExpectedCleanSheets = 0.1;
 
+    let averageCaptainWins = 0;
+
     try {
+      const leagueScopeSql = effectiveLeagueId
+        ? 'AND m."leagueId" = :effectiveLeagueId'
+        : (playerLeagueIds.length > 0 ? 'AND m."leagueId" IN (:playerLeagueIds)' : '');
+      const seasonScopeSql = effectiveSeasonId ? 'AND m."seasonId" = :effectiveSeasonId' : '';
+      const yearScopeSql = yearStart ? 'AND m."date" >= :yearStart AND m."date" < :yearEnd' : '';
+
       const avgResults: any = await sequelize.query(`
-        WITH ActiveLeaguePlayers AS (
-          SELECT 
-            ms.user_id,
-            COUNT(DISTINCT ms.match_id) AS matches_count,
-            SUM(ms.goals) AS goals,
-            SUM(ms.assists) AS assists,
-            SUM(ms.clean_sheets) AS clean_sheets,
-            SUM(ms.defence) AS defence,
-            AVG(ms.impact) AS impact_avg
-          FROM match_statistics ms
-          INNER JOIN "Matches" m ON ms.match_id = m.id
-          INNER JOIN users u ON ms.user_id = u.id
-          WHERE m.status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED')
+        WITH ScopedMatches AS (
+          SELECT m.id, m."homeTeamGoals", m."awayTeamGoals", m."leagueId", m."seasonId", m.date
+          FROM "Matches" m
+          INNER JOIN "Leagues" l ON m."leagueId" = l.id
+          WHERE m.status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED', 'REVISION_REQUESTED')
             AND (m.deleted = false OR m.deleted IS NULL)
-            AND (u.provider IS NULL OR u.provider != 'guest')
+            AND (l.archived = false OR l.archived IS NULL)
+            ${leagueScopeSql}
+            ${seasonScopeSql}
+            ${yearScopeSql}
+        ),
+        PlayerParticipatedMatches AS (
+          SELECT DISTINCT sm.id AS match_id, ms.user_id
+          FROM match_statistics ms
+          INNER JOIN ScopedMatches sm ON ms.match_id = sm.id
+          UNION
+          SELECT DISTINCT sm.id AS match_id, uhm."userId" AS user_id
+          FROM "UserHomeMatches" uhm
+          INNER JOIN ScopedMatches sm ON uhm."matchId" = sm.id
+          UNION
+          SELECT DISTINCT sm.id AS match_id, uam."userId" AS user_id
+          FROM "UserAwayMatches" uam
+          INNER JOIN ScopedMatches sm ON uam."matchId" = sm.id
+        ),
+        ActiveLeaguePlayers AS (
+          SELECT 
+            ppm.user_id,
+            COUNT(DISTINCT ppm.match_id) AS matches_count,
+            COALESCE(SUM(COALESCE(ms.goals, 0)), 0) AS goals,
+            COALESCE(SUM(COALESCE(ms.assists, 0)), 0) AS assists,
+            COALESCE(SUM(COALESCE(ms.clean_sheets, 0)), 0) AS clean_sheets,
+            COALESCE(SUM(COALESCE(ms.defence, 0)), 0) AS defence,
+            COALESCE(SUM(COALESCE(ms.impact, 0)), 0) AS impact_sum,
+            CASE
+              WHEN COUNT(DISTINCT ppm.match_id) > 0
+              THEN LEAST(100.0, GREATEST(0.0, COALESCE(SUM(COALESCE(ms.impact, 0)), 0)::float / COUNT(DISTINCT ppm.match_id)::float))
+              ELSE 0.0
+            END AS impact_avg
+          FROM PlayerParticipatedMatches ppm
+          INNER JOIN users u ON ppm.user_id = u.id
+          LEFT JOIN match_statistics ms ON ms.match_id = ppm.match_id AND ms.user_id = ppm.user_id
+          WHERE (u.provider IS NULL OR u.provider != 'guest')
             AND (u.email IS NULL OR (u.email NOT ILIKE '%guest%' AND u.email NOT ILIKE '%@local.invalid'))
-            ${leagueId && leagueId !== 'all' ? 'AND m."leagueId" = :leagueId' : ''}
-            ${seasonId && seasonId !== 'all' ? 'AND m."seasonId" = :seasonId' : ''}
-            ${yearStart ? 'AND m."date" >= :yearStart AND m."date" < :yearEnd' : ''}
-          GROUP BY ms.user_id
+          GROUP BY ppm.user_id
         ),
         LeagueTotalMatches AS (
-          SELECT COUNT(DISTINCT m.id) AS total_matches
-          FROM "Matches" m
-          INNER JOIN match_statistics ms ON m.id = ms.match_id
-          INNER JOIN users u ON ms.user_id = u.id
-          WHERE m.status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED')
-            AND (m.deleted = false OR m.deleted IS NULL)
-            AND (u.provider IS NULL OR u.provider != 'guest')
+          SELECT COUNT(DISTINCT ppm.match_id) AS total_matches
+          FROM PlayerParticipatedMatches ppm
+          INNER JOIN users u ON ppm.user_id = u.id
+          WHERE (u.provider IS NULL OR u.provider != 'guest')
             AND (u.email IS NULL OR (u.email NOT ILIKE '%guest%' AND u.email NOT ILIKE '%@local.invalid'))
-            ${leagueId && leagueId !== 'all' ? 'AND m."leagueId" = :leagueId' : ''}
-            ${seasonId && seasonId !== 'all' ? 'AND m."seasonId" = :seasonId' : ''}
-            ${yearStart ? 'AND m."date" >= :yearStart AND m."date" < :yearEnd' : ''}
         ),
         PlayerWins AS (
           SELECT
             alp.user_id,
-            COUNT(m.id) AS wins
+            COUNT(DISTINCT m.id) AS wins
           FROM ActiveLeaguePlayers alp
           INNER JOIN "UserHomeMatches" uhm ON alp.user_id = uhm."userId"
           INNER JOIN "Matches" m ON uhm."matchId" = m.id
-          WHERE m.status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED')
+          INNER JOIN "Leagues" l ON m."leagueId" = l.id
+          WHERE m.status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED', 'REVISION_REQUESTED')
             AND (m.deleted = false OR m.deleted IS NULL)
+            AND (l.archived = false OR l.archived IS NULL)
             AND m."homeTeamGoals" > m."awayTeamGoals"
-            ${leagueId && leagueId !== 'all' ? 'AND m."leagueId" = :leagueId' : ''}
-            ${seasonId && seasonId !== 'all' ? 'AND m."seasonId" = :seasonId' : ''}
-            ${yearStart ? 'AND m."date" >= :yearStart AND m."date" < :yearEnd' : ''}
+            ${leagueScopeSql}
+            ${seasonScopeSql}
+            ${yearScopeSql}
           GROUP BY alp.user_id
           UNION ALL
           SELECT
             alp.user_id,
-            COUNT(m.id) AS wins
+            COUNT(DISTINCT m.id) AS wins
           FROM ActiveLeaguePlayers alp
           INNER JOIN "UserAwayMatches" uam ON alp.user_id = uam."userId"
           INNER JOIN "Matches" m ON uam."matchId" = m.id
-          WHERE m.status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED')
+          INNER JOIN "Leagues" l ON m."leagueId" = l.id
+          WHERE m.status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED', 'REVISION_REQUESTED')
             AND (m.deleted = false OR m.deleted IS NULL)
+            AND (l.archived = false OR l.archived IS NULL)
             AND m."awayTeamGoals" > m."homeTeamGoals"
-            ${leagueId && leagueId !== 'all' ? 'AND m."leagueId" = :leagueId' : ''}
-            ${seasonId && seasonId !== 'all' ? 'AND m."seasonId" = :seasonId' : ''}
-            ${yearStart ? 'AND m."date" >= :yearStart AND m."date" < :yearEnd' : ''}
+            ${leagueScopeSql}
+            ${seasonScopeSql}
+            ${yearScopeSql}
           GROUP BY alp.user_id
         ),
         PlayerTotalWins AS (
@@ -1163,35 +1444,79 @@ export const getCareerDashboard = async (ctx: Context) => {
           SELECT v."votedForId" AS user_id, COUNT(*) AS motm_votes
           FROM "Votes" v
           INNER JOIN "Matches" m ON v."matchId" = m.id
+          INNER JOIN "Leagues" l ON m."leagueId" = l.id
           INNER JOIN ActiveLeaguePlayers alp ON v."votedForId" = alp.user_id
-          WHERE m.status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED')
+          WHERE m.status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED', 'REVISION_REQUESTED')
             AND (m.deleted = false OR m.deleted IS NULL)
-            ${leagueId && leagueId !== 'all' ? 'AND m."leagueId" = :leagueId' : ''}
-            ${seasonId && seasonId !== 'all' ? 'AND m."seasonId" = :seasonId' : ''}
-            ${yearStart ? 'AND m."date" >= :yearStart AND m."date" < :yearEnd' : ''}
+            AND (l.archived = false OR l.archived IS NULL)
+            AND (v.category = 'motm' OR v.category IS NULL)
+            ${leagueScopeSql}
+            ${seasonScopeSql}
+            ${yearScopeSql}
           GROUP BY v."votedForId"
         ),
+        DefenceVoteMatches AS (
+          SELECT DISTINCT v."matchId"
+          FROM "Votes" v
+          INNER JOIN "Matches" m ON v."matchId" = m.id
+          INNER JOIN "Leagues" l ON m."leagueId" = l.id
+          WHERE v.category IN ('defence', 'defensive')
+            AND m.status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED', 'REVISION_REQUESTED')
+            AND (m.deleted = false OR m.deleted IS NULL)
+            AND (l.archived = false OR l.archived IS NULL)
+            ${leagueScopeSql}
+            ${seasonScopeSql}
+            ${yearScopeSql}
+        ),
+        PlayerDefensiveVotes AS (
+          SELECT dv.user_id, COUNT(*) AS def_votes
+          FROM (
+            SELECT DISTINCT ON (v."matchId", COALESCE(v."voterId"::text, v.id::text))
+              v."votedForId" AS user_id
+            FROM "Votes" v
+            INNER JOIN "Matches" m ON v."matchId" = m.id
+            INNER JOIN "Leagues" l ON m."leagueId" = l.id
+            INNER JOIN ActiveLeaguePlayers alp ON v."votedForId" = alp.user_id
+            WHERE v.category IN ('defence', 'defensive')
+              AND m.status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED', 'REVISION_REQUESTED')
+              AND (m.deleted = false OR m.deleted IS NULL)
+              AND (l.archived = false OR l.archived IS NULL)
+              ${leagueScopeSql}
+              ${seasonScopeSql}
+              ${yearScopeSql}
+            ORDER BY v."matchId", COALESCE(v."voterId"::text, v.id::text), v."createdAt" DESC
+          ) dv
+          GROUP BY dv.user_id
+        ),
         PlayerDefensiveImpact AS (
+          SELECT user_id, def_votes FROM PlayerDefensiveVotes
+          UNION ALL
           SELECT m."homeDefensiveImpactId" AS user_id, COUNT(*) AS def_votes
           FROM "Matches" m
+          INNER JOIN "Leagues" l ON m."leagueId" = l.id
           INNER JOIN ActiveLeaguePlayers alp ON m."homeDefensiveImpactId" = alp.user_id
-          WHERE m.status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED')
+          WHERE m.status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED', 'REVISION_REQUESTED')
             AND (m.deleted = false OR m.deleted IS NULL)
+            AND (l.archived = false OR l.archived IS NULL)
             AND m."homeDefensiveImpactId" IS NOT NULL
-            ${leagueId && leagueId !== 'all' ? 'AND m."leagueId" = :leagueId' : ''}
-            ${seasonId && seasonId !== 'all' ? 'AND m."seasonId" = :seasonId' : ''}
-            ${yearStart ? 'AND m."date" >= :yearStart AND m."date" < :yearEnd' : ''}
+            AND NOT EXISTS (SELECT 1 FROM DefenceVoteMatches dvm WHERE dvm."matchId" = m.id)
+            ${leagueScopeSql}
+            ${seasonScopeSql}
+            ${yearScopeSql}
           GROUP BY m."homeDefensiveImpactId"
           UNION ALL
           SELECT m."awayDefensiveImpactId" AS user_id, COUNT(*) AS def_votes
           FROM "Matches" m
+          INNER JOIN "Leagues" l ON m."leagueId" = l.id
           INNER JOIN ActiveLeaguePlayers alp ON m."awayDefensiveImpactId" = alp.user_id
-          WHERE m.status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED')
+          WHERE m.status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED', 'REVISION_REQUESTED')
             AND (m.deleted = false OR m.deleted IS NULL)
+            AND (l.archived = false OR l.archived IS NULL)
             AND m."awayDefensiveImpactId" IS NOT NULL
-            ${leagueId && leagueId !== 'all' ? 'AND m."leagueId" = :leagueId' : ''}
-            ${seasonId && seasonId !== 'all' ? 'AND m."seasonId" = :seasonId' : ''}
-            ${yearStart ? 'AND m."date" >= :yearStart AND m."date" < :yearEnd' : ''}
+            AND NOT EXISTS (SELECT 1 FROM DefenceVoteMatches dvm WHERE dvm."matchId" = m.id)
+            ${leagueScopeSql}
+            ${seasonScopeSql}
+            ${yearScopeSql}
           GROUP BY m."awayDefensiveImpactId"
         ),
         PlayerTotalDefensiveImpact AS (
@@ -1209,7 +1534,11 @@ export const getCareerDashboard = async (ctx: Context) => {
           AVG(alp.assists) AS avg_assists,
           AVG(alp.clean_sheets) AS avg_clean_sheets,
           AVG(alp.defence) AS avg_defence,
-          AVG(alp.impact_avg) AS avg_impact,
+          CASE
+            WHEN SUM(alp.matches_count) > 0
+            THEN LEAST(100.0, GREATEST(0.0, SUM(alp.impact_sum)::float / SUM(alp.matches_count)::float))
+            ELSE 0.0
+          END AS avg_impact,
           AVG(COALESCE(pm.motm_votes, 0)) AS avg_motm_votes,
           AVG(COALESCE(ptw.wins, 0)) AS avg_wins,
           AVG(CASE WHEN alp.matches_count > 0 THEN (COALESCE(ptw.wins, 0)::float / alp.matches_count::float) * 100 ELSE 0 END) AS avg_win_rate,
@@ -1222,7 +1551,13 @@ export const getCareerDashboard = async (ctx: Context) => {
         LEFT JOIN PlayerMotm pm ON alp.user_id = pm.user_id
         LEFT JOIN PlayerTotalDefensiveImpact ptdi ON alp.user_id = ptdi.user_id;
       `, {
-        replacements: { leagueId, seasonId, yearStart, yearEnd },
+        replacements: {
+          effectiveLeagueId,
+          effectiveSeasonId,
+          playerLeagueIds,
+          yearStart,
+          yearEnd
+        },
         type: QueryTypes.SELECT
       });
 
@@ -1241,8 +1576,55 @@ export const getCareerDashboard = async (ctx: Context) => {
         if (avgRow.avg_win_rate != null) leagueAvgWinRate = Number(avgRow.avg_win_rate);
         if (avgRow.avg_def_votes != null) leagueAvgDefensiveImpactVotes = Number(avgRow.avg_def_votes);
       }
+
+      const captainMatches: any = await sequelize.query(`
+        SELECT m."homeCaptainId", m."awayCaptainId", m."homeTeamGoals", m."awayTeamGoals"
+        FROM "Matches" m
+        INNER JOIN "Leagues" l ON m."leagueId" = l.id
+        WHERE m.status IN ('RESULT_PUBLISHED', 'RESULT_UPLOADED', 'REVISION_REQUESTED')
+          AND (m.deleted = false OR m.deleted IS NULL)
+          AND (l.archived = false OR l.archived IS NULL)
+          ${leagueScopeSql}
+          ${seasonScopeSql}
+          ${yearScopeSql}
+      `, {
+        replacements: {
+          effectiveLeagueId,
+          effectiveSeasonId,
+          playerLeagueIds,
+          yearStart,
+          yearEnd
+        },
+        type: QueryTypes.SELECT
+      });
+
+      const captainWinsMap: Record<string, number> = {};
+      const allCaptains = new Set<string>();
+      (captainMatches || []).forEach((cm: any) => {
+        if (cm.homeCaptainId) allCaptains.add(String(cm.homeCaptainId));
+        if (cm.awayCaptainId) allCaptains.add(String(cm.awayCaptainId));
+        const hg = Number(cm.homeTeamGoals || 0);
+        const ag = Number(cm.awayTeamGoals || 0);
+        if (hg > ag && cm.homeCaptainId) {
+          const cid = String(cm.homeCaptainId);
+          captainWinsMap[cid] = (captainWinsMap[cid] || 0) + 1;
+        } else if (ag > hg && cm.awayCaptainId) {
+          const cid = String(cm.awayCaptainId);
+          captainWinsMap[cid] = (captainWinsMap[cid] || 0) + 1;
+        }
+      });
+      if (allCaptains.size > 0) {
+        let totalCapWins = 0;
+        allCaptains.forEach((cid) => {
+          totalCapWins += captainWinsMap[cid] || 0;
+        });
+        averageCaptainWins = Math.round((totalCapWins / allCaptains.size) * 10) / 10;
+      } else {
+        averageCaptainWins = Math.round(leagueAvgWins * 10) / 10;
+      }
     } catch (err) {
       console.warn('League benchmark query fallback:', err);
+      averageCaptainWins = Math.round(leagueAvgWins * 10) / 10;
     }
 
     const leagueAverage = {
@@ -1358,8 +1740,13 @@ export const getCareerDashboard = async (ctx: Context) => {
       });
     }
 
-    // Top Strengths evaluation
-    const strengthCandidates = [
+    // Top Strengths evaluation (ranked by relative outperformance vs league average)
+    const getStrengthRatio = (val: number, avg: number): number => {
+      if (avg > 0) return val / avg;
+      return val > 0 ? 1.25 : 0;
+    };
+
+    const rawStrengthCandidates = [
       {
         metric: '% Impact',
         rank: 1,
@@ -1383,9 +1770,9 @@ export const getCareerDashboard = async (ctx: Context) => {
         rank: 3,
         yourTotal: captainWinsCount,
         yourDisplay: String(captainWinsCount),
-        leagueAverage: leagueAverage.wins,
-        leagueDisplay: formatStatDecimal(leagueAverage.wins),
-        qualified: captainMatchesCount > 0 && captainWinsCount > leagueAverage.wins,
+        leagueAverage: averageCaptainWins,
+        leagueDisplay: formatStatDecimal(averageCaptainWins),
+        qualified: captainMatchesCount > 0 && captainWinsCount > averageCaptainWins,
       },
       {
         metric: 'Frequent Top Performer',
@@ -1403,7 +1790,7 @@ export const getCareerDashboard = async (ctx: Context) => {
         yourDisplay: String(defensiveImpactVotes),
         leagueAverage: leagueAverage.defensiveImpactVotes,
         leagueDisplay: formatStatDecimal(leagueAverage.defensiveImpactVotes),
-        qualified: defensiveImpactVotes > 3,
+        qualified: defensiveImpactVotes > 3 || (leagueAverage.defensiveImpactVotes > 0 && defensiveImpactVotes >= 1.25 * leagueAverage.defensiveImpactVotes),
       },
       {
         metric: 'Clean Sheet',
@@ -1412,7 +1799,7 @@ export const getCareerDashboard = async (ctx: Context) => {
         yourDisplay: String(cleanSheets),
         leagueAverage: leagueAverage.cleanSheets,
         leagueDisplay: formatStatDecimal(leagueAverage.cleanSheets),
-        qualified: cleanSheets > 0,
+        qualified: cleanSheets > 0 && (leagueAverage.cleanSheets > 0 ? cleanSheets >= 1.25 * leagueAverage.cleanSheets : true),
       },
       {
         metric: 'Goals',
@@ -1421,7 +1808,7 @@ export const getCareerDashboard = async (ctx: Context) => {
         yourDisplay: String(goals),
         leagueAverage: leagueAverage.goals,
         leagueDisplay: formatStatDecimal(leagueAverage.goals),
-        qualified: goals > 0,
+        qualified: goals > 0 && (leagueAverage.goals > 0 ? goals >= 1.25 * leagueAverage.goals : true),
       },
       {
         metric: 'Assist',
@@ -1430,20 +1817,38 @@ export const getCareerDashboard = async (ctx: Context) => {
         yourDisplay: String(assists),
         leagueAverage: leagueAverage.assists,
         leagueDisplay: formatStatDecimal(leagueAverage.assists),
-        qualified: assists > 0,
+        qualified: assists > 0 && (leagueAverage.assists > 0 ? assists >= 1.25 * leagueAverage.assists : true),
       },
-    ];
+    ].map((s) => ({
+      ...s,
+      ratio: getStrengthRatio(Number(s.yourTotal || 0), Number(s.leagueAverage || 0)),
+      aboveAverage: Number(s.yourTotal || 0) > 0 && (Number(s.leagueAverage || 0) > 0 ? Number(s.yourTotal || 0) > Number(s.leagueAverage || 0) : true),
+    }));
 
-    let qualifiedStrengths = strengthCandidates.filter(s => s.qualified);
-    if (qualifiedStrengths.length === 0) {
-      qualifiedStrengths = strengthCandidates.filter(s => s.yourTotal > 0);
-    }
-    qualifiedStrengths.sort((a, b) => {
+    const compareStrengths = (a: (typeof rawStrengthCandidates)[number], b: (typeof rawStrengthCandidates)[number]) => {
+      if (Math.abs(b.ratio - a.ratio) > 0.001) return b.ratio - a.ratio;
       if (a.rank !== b.rank) return a.rank - b.rank;
       return b.yourTotal - a.yourTotal;
-    });
+    };
 
-    const top3Strengths = qualifiedStrengths.slice(0, 3).map(s => ({
+    const strictlyQualified = rawStrengthCandidates.filter((s) => s.qualified).sort(compareStrengths);
+    let selectedStrengths = [...strictlyQualified];
+
+    if (selectedStrengths.length < 3) {
+      const selectedMetrics = new Set(selectedStrengths.map((s) => s.metric));
+      const aboveAvgExtras = rawStrengthCandidates
+        .filter((s) => !selectedMetrics.has(s.metric) && s.aboveAverage)
+        .sort(compareStrengths);
+      selectedStrengths = [...selectedStrengths, ...aboveAvgExtras];
+    }
+
+    if (selectedStrengths.length === 0) {
+      selectedStrengths = rawStrengthCandidates
+        .filter((s) => s.yourTotal > 0)
+        .sort(compareStrengths);
+    }
+
+    const top3Strengths = selectedStrengths.slice(0, 3).map((s) => ({
       metric: s.metric,
       yourTotal: s.yourTotal,
       yourDisplay: s.yourDisplay,
@@ -1462,14 +1867,17 @@ export const getCareerDashboard = async (ctx: Context) => {
       'Assist': 'Assist: Made at least one assist in matches.',
     };
 
+    const topCandidate = selectedStrengths[0];
     const topStrengthNote = top3Strengths.length > 0
-      ? strengthDescriptionMap[top3Strengths[0].metric] || `${top3Strengths[0].metric}: ${top3Strengths[0].yourDisplay}; league average ${top3Strengths[0].leagueDisplay}.`
+      ? ((topCandidate && topCandidate.leagueAverage > 0 && topCandidate.ratio >= 1.25 && ['Goals', 'Assist', 'Clean Sheet'].includes(topCandidate.metric))
+        ? `${topCandidate.metric}: 25% or more above the league average.`
+        : (strengthDescriptionMap[top3Strengths[0].metric] || `${top3Strengths[0].metric}: ${top3Strengths[0].yourDisplay}; league average ${top3Strengths[0].leagueDisplay}.`))
       : '';
 
     const narrativeMessages: Record<string, string> = {
       'Goals': "You're among the top goal scorers! Ranked in the top 10% for goals scored in the league",
       'Assist': "You're one of the top assist providers, ranked in the top 5% for assists in the league!",
-      'Clean Sheet': "You're goal keeping is impressive! Ranked among the top 27% for clean sheets in the league",
+      'Clean Sheet': "Your goalkeeping is impressive! Ranked among the top 27% for clean sheets in the league",
       'Frequent Top Performer': "You’re a consistent standout! Regularly among the top performers in matches",
       'Captains Performance': "Leading by example! You’ve earned the captain’s pick for outstanding performances multiple times.",
       'Individual Brilliances': "A match-winning presence! Your individual brilliance is undeniable",
@@ -1477,7 +1885,7 @@ export const getCareerDashboard = async (ctx: Context) => {
       '% Impact': "You make a difference every time! Your positive impact on games is among the highest in the league",
     };
 
-    const strongestNarrative = top3Strengths.length > 0
+    const strongestNarrative = top3Strengths.length > 0 && (strictlyQualified.length > 0 || topCandidate?.aboveAverage)
       ? { metric: top3Strengths[0].metric, message: narrativeMessages[top3Strengths[0].metric] || '' }
       : null;
 
@@ -1561,12 +1969,17 @@ export const getCareerDashboard = async (ctx: Context) => {
       ];
     }
 
-    // Influence Radar
+    // Influence Radar (use captain defensive impact votes when present, else legacy defence column)
+    const radarDefensiveImpact = defensiveImpactVotes > 0 ? defensiveImpactVotes : defence;
+    const radarLeagueDefensiveImpact = leagueAverage.defensiveImpactVotes > 0
+      ? leagueAverage.defensiveImpactVotes
+      : leagueAverage.defence;
+
     const influenceRadar = [
       { metric: 'Goals', [playerName]: goals, 'League Avg': leagueAverage.goals },
       { metric: 'Assists', [playerName]: assists, 'League Avg': leagueAverage.assists },
       { metric: 'Clean Sheets', [playerName]: cleanSheets, 'League Avg': leagueAverage.cleanSheets },
-      { metric: 'Defensive Impact', [playerName]: defence, 'League Avg': leagueAverage.defence },
+      { metric: 'Defensive Impact', [playerName]: radarDefensiveImpact, 'League Avg': radarLeagueDefensiveImpact },
       { metric: 'MOTM Votes', [playerName]: motmVotes, 'League Avg': leagueAverage.motmVotes },
     ];
 
