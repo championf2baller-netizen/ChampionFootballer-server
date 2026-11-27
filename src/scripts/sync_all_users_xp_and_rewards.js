@@ -12,15 +12,15 @@ const XP_BY_ID = xpAchievements.reduce((acc, ach) => {
 }, {});
 
 const xpPointsTable = {
-  winningTeam: 30,
+  winningTeam: 20,
   draw: 15,
   losingTeam: 10,
-  motm: { win: 10, lose: 5 },
-  cleanSheet: 5,
-  goal: { win: 3, lose: 2 },
-  assist: { win: 2, lose: 1 },
-  motmVote: { win: 2, lose: 1 },
-  defensiveImpact: { win: 2, lose: 1 },
+  motm: { win: 0, lose: 0 },
+  cleanSheet: 3,
+  goal: { win: 2, lose: 2 },
+  assist: { win: 2, lose: 2 },
+  motmVote: { win: 2, lose: 2 },
+  defensiveImpact: { win: 2, lose: 2 },
   mentality: { win: 2, lose: 2 },
 };
 
